@@ -1,0 +1,15 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+
+# Node / Vite
+node_modules/
+web/dist/
+web/node_modules/
+
+# Env / local
+*.env
+.DS_Store
+debug.log
