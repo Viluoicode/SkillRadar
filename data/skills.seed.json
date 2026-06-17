@@ -86,6 +86,9 @@
     { "name": "Git", "category": "DevOps", "aliases": [] },
     { "name": "Linux", "category": "DevOps", "aliases": [] },
     { "name": "Nginx", "category": "DevOps", "aliases": [] },
+    { "name": "GitHub", "category": "DevOps", "aliases": [] },
+    { "name": "GitLab", "category": "DevOps", "aliases": [] },
+    { "name": "Bitbucket", "category": "DevOps", "aliases": [] },
 
     { "name": "PostgreSQL", "category": "Database", "aliases": ["Postgres"] },
     { "name": "MySQL", "category": "Database", "aliases": [] },
@@ -102,6 +105,7 @@
     { "name": "Redshift", "category": "Database", "aliases": ["Amazon Redshift"] },
     { "name": "Neo4j", "category": "Database", "aliases": [] },
     { "name": "DuckDB", "category": "Database", "aliases": [] },
+    { "name": "Vector Database", "category": "Database", "aliases": ["vector db", "vector store", "vector search", "vector index"] },
 
     { "name": "Kafka", "category": "Data", "aliases": ["Apache Kafka"] },
     { "name": "Spark", "category": "Data", "aliases": ["Apache Spark", "PySpark"] },
@@ -117,6 +121,11 @@
     { "name": "Tableau", "category": "Data", "aliases": [] },
     { "name": "Power BI", "category": "Data", "aliases": ["PowerBI"] },
     { "name": "Looker", "category": "Data", "aliases": [] },
+    { "name": "Delta Lake", "category": "Data", "aliases": [] },
+    { "name": "Apache Iceberg", "category": "Data", "aliases": ["Iceberg"] },
+    { "name": "Hive", "category": "Data", "aliases": ["Apache Hive"] },
+    { "name": "Presto", "category": "Data", "aliases": [] },
+    { "name": "Trino", "category": "Data", "aliases": [] },
 
     { "name": "Machine Learning", "category": "ML/AI", "aliases": ["ML"] },
     { "name": "Deep Learning", "category": "ML/AI", "aliases": [] },
@@ -130,6 +139,11 @@
     { "name": "Generative AI", "category": "ML/AI", "aliases": ["GenAI"] },
     { "name": "MLOps", "category": "ML/AI", "aliases": [] },
     { "name": "Hugging Face", "category": "ML/AI", "aliases": ["HuggingFace"] },
+    { "name": "RAG", "category": "ML/AI", "aliases": ["Retrieval-Augmented Generation", "Retrieval Augmented Generation"] },
+    { "name": "LangChain", "category": "ML/AI", "aliases": [] },
+    { "name": "CUDA", "category": "ML/AI", "aliases": [] },
+    { "name": "JAX", "category": "ML/AI", "aliases": [] },
+    { "name": "Triton", "category": "ML/AI", "aliases": [] },
 
     { "name": "iOS", "category": "Mobile", "aliases": [] },
     { "name": "Android", "category": "Mobile", "aliases": [] },

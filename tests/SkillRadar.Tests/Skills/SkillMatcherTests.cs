@@ -169,4 +169,42 @@ public class SkillMatcherTests
         var result = BuildGuardedMatcher().Match("Our Go-to-Market plan. Backend in Go and Java.");
         Assert.Contains(GoId, result);
     }
+
+    // ---- Newly added dictionary terms (multi-word, acronyms, prefix collisions) -------
+
+    [Fact]
+    public void Matches_multiword_terms_and_aliases()
+    {
+        var m = new SkillMatcher(new[]
+        {
+            new SkillTerms(20, "Delta Lake", new[] { "Delta Lake" }),
+            new SkillTerms(21, "Vector Database", new[] { "Vector Database", "vector store", "vector search" }),
+            new SkillTerms(22, "RAG", new[] { "RAG", "Retrieval-Augmented Generation" }),
+        });
+
+        Assert.Contains(20, m.Match("Build pipelines on Delta Lake at scale"));
+        Assert.Contains(21, m.Match("Experience with a vector store for embeddings"));
+        Assert.Contains(22, m.Match("Familiarity with RAG pipelines"));
+        Assert.Contains(22, m.Match("using Retrieval-Augmented Generation"));
+    }
+
+    [Fact]
+    public void Longer_term_wins_github_actions_over_github()
+    {
+        // "GitHub Actions" and "GitHub" are distinct skills; the longer term must win at its
+        // position so a CI mention is not also miscounted as the platform.
+        var m = new SkillMatcher(new[]
+        {
+            new SkillTerms(30, "GitHub", new[] { "GitHub" }),
+            new SkillTerms(31, "GitHub Actions", new[] { "GitHub Actions" }),
+        });
+
+        var ci = m.Match("CI runs on GitHub Actions");
+        Assert.Contains(31, ci);
+        Assert.DoesNotContain(30, ci);
+
+        var platform = m.Match("Code hosted on GitHub");
+        Assert.Contains(30, platform);
+        Assert.DoesNotContain(31, platform);
+    }
 }
