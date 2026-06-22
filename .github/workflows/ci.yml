@@ -1,6 +1,5 @@
-# Lint + tests. Assumes the `python/` folder is the repository root.
-# If this lives inside a larger repo, move it to the repo's `.github/workflows/`
-# and add `working-directory: python` to each run step (or a top-level `defaults`).
+# Lint + tests for the Python pipeline (the repository root). The archived .NET solution
+# under reference/dotnet-original/ is intentionally not built or tested here.
 name: CI
 
 on:

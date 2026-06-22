@@ -1,6 +1,6 @@
 # Daily ingestion: run the Medallion pipeline and commit the refreshed DuckDB + Parquet.
-# Assumes the `python/` folder is the repository root (see note in ci.yml).
-# Streamlit Community Cloud then serves the committed data — zero server cost.
+# The Python pipeline is the repository root; Streamlit Community Cloud then serves the
+# committed data — zero server cost.
 name: Pipeline
 
 on:
@@ -27,7 +27,7 @@ jobs:
         run: uv pip install --system -e .
 
       - name: Run pipeline
-        run: python -m skillradar.pipeline.run --trigger github-actions
+        run: python -m skillradar.interface.cli --trigger github-actions
 
       - name: Commit refreshed data
         run: |

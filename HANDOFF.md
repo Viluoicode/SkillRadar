@@ -9,6 +9,56 @@
 
 ---
 
+## 0. UPDATE — Clean Architecture refactor (read this first)
+
+The repo has been restructured since this handoff was first written. The product behavior
+is **unchanged** (49→52 tests pass, live run still ~2700 jobs / 302 demand rows), but the
+**layout and entry points changed**. Where this section and the older sections below
+disagree, **this section wins**; treat the old file map / run commands as historical.
+
+- **Repo is now git-initialized.** The Python implementation was promoted to the
+  **repository root** (no more `python/` subfolder). The original .NET solution is archived
+  read-only at **`reference/dotnet-original/`** (not built/tested in CI).
+- **The flat package was split into Clean Architecture layers** under `src/skillradar/`,
+  with a strict inward dependency rule `interface → infrastructure → application → domain`:
+  - `domain/` — pure rules/types (models, records, dedup/text/dates, roles, skills
+    matcher/guards, and the `reconciliation`/`extraction`/`demand` algorithms). No I/O imports.
+  - `application/` — `ports.py` (repository/connector Protocols), `dto.py`, `errors.py`,
+    `services/{silver,skills,gold}.py`, and `pipeline.py`. Depends only on `domain`.
+  - `infrastructure/` — the only layer importing duckdb/httpx/pandas: `db/repositories.py`
+    (**all SQL lives here**), `db/warehouse.py` (schema), `http/client.py`,
+    `bronze/parquet_store.py`, `sources/*` (connectors + fetcher + catalog),
+    `skills/seed_loader.py`, `config.py`, `logging.py`.
+  - `interface/` — composition roots: `cli.py` and `prefect_flow.py`.
+- **Old → new (the modules referenced lower in this file moved):**
+  `common/{models,dedup,text,dates}` → `domain/*`; `gold/roles` → `domain/roles`;
+  `skills/{matcher,guards}` → `domain/skills/*`; `skills/dictionary` split into
+  `domain/skills/dictionary` (pure) + `infrastructure/skills/seed_loader` (file load);
+  `silver/normalize` → `domain/reconciliation` + `application/services/silver`;
+  `gold/aggregate` → `domain/demand` + `application/services/gold`;
+  `skills/extract` → `domain/extraction` + `application/services/skills`;
+  `common/db` → `infrastructure/db/warehouse`; `common/http` → `infrastructure/http/client`;
+  `common/config` → `infrastructure/config`; `common/logging` → `infrastructure/logging`
+  (now `configure_logging()`; libraries use `logging.getLogger`); `bronze/land` →
+  `infrastructure/bronze/parquet_store`; `ingestion/*` → `infrastructure/sources/*`;
+  `pipeline/run` → `application/pipeline` + `interface/cli`; `pipeline/flow` →
+  `interface/prefect_flow`.
+- **New run / verify commands** (from the repo root; the old `skillradar.pipeline.run` is gone):
+  ```powershell
+  $env:PYTHONUTF8 = "1"; $env:PYTHONPATH = "$PWD\src"
+  .\.venv\Scripts\python.exe -m skillradar.interface.cli --trigger verify   # full pipeline
+  .\.venv\Scripts\python.exe -m pytest                                      # 52 passed
+  .\.venv\Scripts\python.exe -m ruff check .
+  .\.venv\Scripts\python.exe -m streamlit run dashboard/app.py
+  ```
+  (`PYTHONUTF8=1` avoids cp1252 console-encoding errors from the `Tự Học` path.)
+- **New tests:** `tests/test_services_with_fakes.py` runs the services with in-memory fake
+  repositories (no DuckDB), and `tests/test_architecture.py` enforces the dependency rule.
+- The current structure is documented in `README.md`. The plan that drove this work is at
+  `C:\Users\tranv\.claude\plans\zany-herding-wren.md`.
+
+---
+
 ## 1. What this project is
 
 **SkillRadar** = a **read-only job-market intelligence tool**. It aggregates real tech job
