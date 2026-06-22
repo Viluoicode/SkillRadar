@@ -17,6 +17,7 @@ from skillradar.application.dto import BoardConfig, FetchOutcome
 from skillradar.application.ports import JobSourceConnector
 from skillradar.domain.models import JobSource
 from skillradar.infrastructure.http.client import build_client, fetch_with_retry
+from skillradar.infrastructure.sources.arbeitnow import ArbeitnowConnector
 from skillradar.infrastructure.sources.ashby import AshbyConnector
 from skillradar.infrastructure.sources.greenhouse import GreenhouseConnector
 from skillradar.infrastructure.sources.lever import LeverConnector
@@ -29,6 +30,7 @@ def build_registry(client: httpx.Client) -> dict[JobSource, JobSourceConnector]:
         JobSource.greenhouse: GreenhouseConnector(client),
         JobSource.lever: LeverConnector(client),
         JobSource.ashby: AshbyConnector(client),
+        JobSource.arbeitnow: ArbeitnowConnector(client),
     }
 
 

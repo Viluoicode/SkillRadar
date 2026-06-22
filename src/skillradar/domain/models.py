@@ -9,11 +9,12 @@ from pydantic import BaseModel
 
 
 class JobSource(StrEnum):
-    """The ATS platform a posting was ingested from."""
+    """The platform a posting was ingested from — public ATS boards plus Tier-2 aggregators."""
 
     greenhouse = "greenhouse"
     lever = "lever"
     ashby = "ashby"
+    arbeitnow = "arbeitnow"  # Tier-2 aggregator (single global feed, no API key)
 
 
 class FetchedJob(BaseModel):

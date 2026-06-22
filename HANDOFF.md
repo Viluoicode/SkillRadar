@@ -54,6 +54,11 @@ disagree, **this section wins**; treat the old file map / run commands as histor
   (`PYTHONUTF8=1` avoids cp1252 console-encoding errors from the `Tự Học` path.)
 - **New tests:** `tests/test_services_with_fakes.py` runs the services with in-memory fake
   repositories (no DuckDB), and `tests/test_architecture.py` enforces the dependency rule.
+- **DoD source coverage met (supersedes §11's "only 12 boards").** `data/sources.json` now
+  ships **35 verified ATS boards** (Greenhouse/Lever/Ashby, all returning 200) **+ 1 Tier-2
+  aggregator, Arbeitnow** (`infrastructure/sources/arbeitnow.py`, no API key — a single
+  global feed, so its `board_token` is ignored). A live run = 36/36 boards, ~6.7k jobs,
+  130+ companies, 467 demand rows. Dead slugs (e.g. `lever/ramp`, `gh/doordash`) were dropped.
 - The current structure is documented in `README.md`. The plan that drove this work is at
   `C:\Users\tranv\.claude\plans\zany-herding-wren.md`.
 

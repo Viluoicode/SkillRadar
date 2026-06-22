@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from skillradar.domain.models import JobSource
+from skillradar.infrastructure.sources.arbeitnow import ArbeitnowConnector
 from skillradar.infrastructure.sources.ashby import AshbyConnector
 from skillradar.infrastructure.sources.greenhouse import GreenhouseConnector
 from skillradar.infrastructure.sources.lever import LeverConnector
@@ -100,6 +101,45 @@ def test_ashby_parses_postings():
     assert job.remote is True
     assert "PyTorch" in job.description
     assert job.apply_url == "https://jobs.ashbyhq.com/acme/f1e2"
+
+
+def test_arbeitnow_parses_postings_and_stops_after_max_pages():
+    body = """
+    {
+      "data": [
+        {
+          "slug": "senior-data-engineer-acme-123",
+          "company_name": "Acme",
+          "title": "Senior Data Engineer",
+          "description": "<p>Build pipelines with <b>Python</b> and Spark.</p>",
+          "remote": true,
+          "url": "https://www.arbeitnow.com/view/senior-data-engineer-acme-123",
+          "location": "Berlin",
+          "created_at": 1714564800
+        }
+      ],
+      "links": { "next": "https://www.arbeitnow.com/api/job-board-api?page=2" }
+    }
+    """
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        return httpx.Response(200, text=body)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    jobs = ArbeitnowConnector(client, max_pages=2).fetch("global")
+
+    assert len(requests) == 2  # follows links.next, then stops at max_pages
+    assert len(jobs) == 2
+    job = jobs[0]
+    assert job.source == JobSource.arbeitnow
+    assert job.source_job_id == "senior-data-engineer-acme-123"
+    assert job.company == "Acme"  # real company name, not the board token
+    assert job.title == "Senior Data Engineer"
+    assert job.remote is True
+    assert "Python" in job.description and "<p>" not in job.description
+    assert job.posted_at == datetime.fromtimestamp(1714564800, tz=UTC)
 
 
 def test_connector_throws_on_http_error():

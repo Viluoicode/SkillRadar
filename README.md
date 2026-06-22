@@ -1,10 +1,12 @@
 # SkillRadar — Python (Data Engineering) edition
 
 A read-only **job-market intelligence** pipeline. SkillRadar aggregates real tech job
-postings from public ATS feeds (**Greenhouse, Lever, Ashby**), runs a **Medallion
-(Bronze → Silver → Gold)** pipeline to ingest → normalize → dedupe, extracts required
-skills with a rule-based dictionary, and serves a Streamlit dashboard of in-demand skills
-per role plus a filterable job list. Every posting links to its original source.
+postings from public ATS feeds (**Greenhouse, Lever, Ashby**) plus the **Arbeitnow**
+aggregator, runs a **Medallion (Bronze → Silver → Gold)** pipeline to ingest → normalize →
+dedupe, extracts required skills with a rule-based dictionary, and serves a Streamlit
+dashboard of in-demand skills per role plus a filterable job list. Every posting links to
+its original source. The curated `data/sources.json` ships 35 ATS company boards + 1
+aggregator (~6.7k live postings, 130+ companies).
 
 This is the **active product**. The original ASP.NET Core implementation is archived for
 reference at [`reference/dotnet-original/`](reference/dotnet-original/) (the Python parity
@@ -137,7 +139,16 @@ Add or remove companies by editing `data/sources.json`; extend the dictionary vi
 
 ## Roadmap
 
-Done: M0–M6 (ingestion → Bronze → Silver → Gold → dashboard → orchestration/CI) plus
-`skill_trends` snapshots, then a full Clean-Architecture restructure. Next: a trend chart
-and skill-gap input (your skills vs. demand) in the dashboard; optional LLM enrichment for
-smarter skill/seniority extraction.
+Done: M0–M6 (ingestion → Bronze → Silver → Gold → dashboard → orchestration/CI), a full
+Clean-Architecture restructure, the Definition-of-Done source coverage (35 ATS boards + the
+Arbeitnow aggregator), and **M7** — a demand-trend chart over daily `skill_trends` snapshots.
+Next: a skill-gap input (your skills vs. demand) in the dashboard; optional LLM enrichment
+for smarter skill/seniority extraction; deploy to Streamlit Community Cloud.
+
+### Adding a new source
+
+The Clean-Architecture split makes this a small, contained change: add a value to
+`JobSource` (`domain/models.py`), write a connector implementing the `JobSourceConnector`
+port under `infrastructure/sources/`, register it in `build_registry` (`sources/registry.py`),
+and add board entries to `data/sources.json`. The `Arbeitnow` aggregator connector is a
+worked example (a single global feed rather than a per-company board).
