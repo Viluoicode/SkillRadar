@@ -1,0 +1,42 @@
+# Daily ingestion: run the Medallion pipeline and commit the refreshed DuckDB + Parquet.
+# Assumes the `python/` folder is the repository root (see note in ci.yml).
+# Streamlit Community Cloud then serves the committed data — zero server cost.
+name: Pipeline
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily at 06:00 UTC
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv pip install --system -e .
+
+      - name: Run pipeline
+        run: python -m skillradar.pipeline.run --trigger github-actions
+
+      - name: Commit refreshed data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f data/skillradar.duckdb data/bronze/*.parquet
+          if git diff --staged --quiet; then
+            echo "No data changes to commit."
+          else
+            git commit -m "data: daily refresh $(date -u +%Y-%m-%d)"
+            git push
+          fi

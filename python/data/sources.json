@@ -1,0 +1,16 @@
+{
+  "boards": [
+    { "source": "Greenhouse", "token": "stripe", "company": "Stripe" },
+    { "source": "Greenhouse", "token": "airbnb", "company": "Airbnb" },
+    { "source": "Greenhouse", "token": "databricks", "company": "Databricks" },
+    { "source": "Greenhouse", "token": "robinhood", "company": "Robinhood" },
+    { "source": "Greenhouse", "token": "coinbase", "company": "Coinbase" },
+    { "source": "Lever", "token": "netflix", "company": "Netflix" },
+    { "source": "Lever", "token": "plaid", "company": "Plaid" },
+    { "source": "Lever", "token": "ramp", "company": "Ramp" },
+    { "source": "Ashby", "token": "openai", "company": "OpenAI" },
+    { "source": "Ashby", "token": "ramp", "company": "Ramp" },
+    { "source": "Ashby", "token": "linear", "company": "Linear" },
+    { "source": "Ashby", "token": "notion", "company": "Notion" }
+  ]
+}

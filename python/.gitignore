@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# uv
+uv.lock
+
+# Data outputs (the pipeline regenerates these; CI may commit them instead)
+data/bronze/*.parquet
+data/gold/*.parquet
+data/*.duckdb
+data/*.duckdb.wal
+
+# Keep the seed inputs and the data dir structure
+!data/sources.json
+!data/skills.seed.json
