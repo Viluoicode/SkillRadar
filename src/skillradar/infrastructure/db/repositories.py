@@ -245,6 +245,28 @@ class DuckDbServingReadModel:
             [role, top_n],
         ).df()
 
+    def trends(self, role: str, top_n: int) -> pd.DataFrame:
+        """Demand over time for a role's current top-``top_n`` skills (from ``skill_trends``).
+        Picks the leaders by the latest snapshot, then returns their full daily history."""
+        return self._con.execute(
+            """
+            WITH latest AS (
+                SELECT skill FROM skill_trends
+                WHERE role = ? AND snapshot_date = (
+                    SELECT max(snapshot_date) FROM skill_trends WHERE role = ?
+                )
+                ORDER BY job_count DESC, skill
+                LIMIT ?
+            )
+            SELECT t.snapshot_date, t.skill, t.job_count
+            FROM skill_trends t
+            JOIN latest l ON t.skill = l.skill
+            WHERE t.role = ?
+            ORDER BY t.snapshot_date, t.skill
+            """,
+            [role, role, top_n, role],
+        ).df()
+
     def distinct_skills(self) -> list[str]:
         return self._con.execute(
             "SELECT DISTINCT skill FROM job_skills ORDER BY skill"

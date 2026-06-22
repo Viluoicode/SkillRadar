@@ -16,6 +16,7 @@ from skillradar.domain.skills.dictionary import Skill
 from skillradar.infrastructure.db.repositories import (
     DuckDbDemandRepository,
     DuckDbJobRepository,
+    DuckDbServingReadModel,
     DuckDbSkillLinkRepository,
 )
 from skillradar.infrastructure.db.warehouse import connect, ensure_schema
@@ -89,6 +90,27 @@ def test_extracts_skills_and_aggregates_demand_for_matching_role(repos):
     ).fetchone()
     assert python[0] == 2  # jobs 1 and 2 (job 3 is Frontend)
     assert k8s[0] == 1
+
+
+def test_serving_read_model_trends_accumulate_across_snapshots(repos):
+    fetched = [
+        fj(GH, "acme", "1", "Senior Data Engineer", desc="We use Python and k8s daily."),
+        fj(GH, "acme", "2", "Data Engineer", desc="Strong Python required."),
+    ]
+    upserted, _ = upsert_jobs(repos.jobs, fetched, GH_ACME, NOW)
+    extract_job_skills(repos.jobs, repos.links, upserted, SKILLS)
+
+    # Two daily snapshots accumulate in skill_trends (the demand table holds only the latest).
+    day1 = datetime(2026, 6, 20, tzinfo=UTC)
+    day2 = datetime(2026, 6, 21, tzinfo=UTC)
+    aggregate_skill_demand(repos.jobs, repos.links, repos.demand, day1)
+    aggregate_skill_demand(repos.jobs, repos.links, repos.demand, day2)
+
+    trends = DuckDbServingReadModel(repos.con).trends("Data Engineer", top_n=5)
+    python_points = trends[trends["skill"] == "Python"]
+    assert len(python_points) == 2  # one point per snapshot
+    assert set(python_points["job_count"]) == {2}
+    assert trends["snapshot_date"].nunique() == 2
 
 
 def test_cross_source_duplicate_is_skipped(repos):

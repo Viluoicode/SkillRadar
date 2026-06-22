@@ -87,6 +87,30 @@ def main() -> None:
             )
             st.altair_chart(chart, use_container_width=True)
 
+        # ---- Demand trend over time (M7) ----
+        st.subheader("Demand trend over time")
+        trends = read_model.trends(role, top_n)
+        if trends.empty:
+            st.info("No trend data yet for this role.")
+        else:
+            if trends["snapshot_date"].nunique() < 2:
+                st.caption(
+                    "Only one daily snapshot so far — the lines fill in as the scheduled "
+                    "pipeline accumulates more days."
+                )
+            trend_chart = (
+                alt.Chart(trends)
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X("snapshot_date:T", title="Snapshot date"),
+                    y=alt.Y("job_count:Q", title="Postings requiring skill"),
+                    color=alt.Color("skill:N", title="Skill"),
+                    tooltip=["snapshot_date:T", "skill:N", "job_count:Q"],
+                )
+                .properties(height=400)
+            )
+            st.altair_chart(trend_chart, use_container_width=True)
+
     # ---- Filterable job list ----
     st.header("Jobs")
     skills_opts = ["All"] + read_model.distinct_skills()
