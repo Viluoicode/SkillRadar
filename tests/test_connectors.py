@@ -5,10 +5,10 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-from skillradar.common.models import JobSource
-from skillradar.ingestion.ashby import AshbyConnector
-from skillradar.ingestion.greenhouse import GreenhouseConnector
-from skillradar.ingestion.lever import LeverConnector
+from skillradar.domain.models import JobSource
+from skillradar.infrastructure.sources.ashby import AshbyConnector
+from skillradar.infrastructure.sources.greenhouse import GreenhouseConnector
+from skillradar.infrastructure.sources.lever import LeverConnector
 
 
 def client_returning(body: str, status: int = 200) -> httpx.Client:

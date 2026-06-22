@@ -20,7 +20,7 @@ orchestration = ["prefect>=2.16"]
 dev = ["pytest>=8", "ruff>=0.4"]
 
 [project.scripts]
-skillradar = "skillradar.pipeline.run:main"
+skillradar = "skillradar.interface.cli:main"
 
 [build-system]
 requires = ["hatchling"]

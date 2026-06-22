@@ -1,15 +1,24 @@
-"""Silver + Gold pipeline tests (port of GoldAggregationTests + dedup/lifecycle cases)."""
+"""Silver + Gold pipeline tests (port of GoldAggregationTests + dedup/lifecycle cases).
 
+These are integration tests: the application services are driven through the real DuckDB
+repositories, and results are asserted by querying the warehouse directly."""
+
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
 
-from skillradar.common.db import connect, ensure_schema
-from skillradar.common.models import FetchedJob, JobSource
-from skillradar.gold.aggregate import aggregate_skill_demand
-from skillradar.silver.normalize import upsert_jobs
-from skillradar.skills.dictionary import Skill
-from skillradar.skills.extract import extract_job_skills
+from skillradar.application.services.gold import aggregate_skill_demand
+from skillradar.application.services.silver import upsert_jobs
+from skillradar.application.services.skills import extract_job_skills
+from skillradar.domain.models import FetchedJob, JobSource
+from skillradar.domain.skills.dictionary import Skill
+from skillradar.infrastructure.db.repositories import (
+    DuckDbDemandRepository,
+    DuckDbJobRepository,
+    DuckDbSkillLinkRepository,
+)
+from skillradar.infrastructure.db.warehouse import connect, ensure_schema
 
 NOW = datetime(2026, 6, 21, tzinfo=UTC)
 GH = JobSource.greenhouse
@@ -17,12 +26,25 @@ LV = JobSource.lever
 GH_ACME = {("greenhouse", "acme")}
 
 
+@dataclass
+class Repos:
+    con: object
+    jobs: DuckDbJobRepository
+    links: DuckDbSkillLinkRepository
+    demand: DuckDbDemandRepository
+
+
 @pytest.fixture
-def con(tmp_path):
-    connection = connect(tmp_path / "test.duckdb")
-    ensure_schema(connection)
-    yield connection
-    connection.close()
+def repos(tmp_path):
+    con = connect(tmp_path / "test.duckdb")
+    ensure_schema(con)
+    yield Repos(
+        con=con,
+        jobs=DuckDbJobRepository(con),
+        links=DuckDbSkillLinkRepository(con),
+        demand=DuckDbDemandRepository(con),
+    )
+    con.close()
 
 
 def fj(source, token, sid, title, *, desc="", company=None, location=None, remote=False):
@@ -45,55 +67,55 @@ SKILLS = [
 ]
 
 
-def test_extracts_skills_and_aggregates_demand_for_matching_role(con):
+def test_extracts_skills_and_aggregates_demand_for_matching_role(repos):
     fetched = [
         fj(GH, "acme", "1", "Senior Data Engineer", desc="We use Python and k8s daily."),
         fj(GH, "acme", "2", "Data Engineer", desc="Strong Python required."),
         fj(GH, "acme", "3", "Frontend Engineer", desc="Python optional."),
     ]
-    upserted, _ = upsert_jobs(con, fetched, GH_ACME, NOW)
+    upserted, _ = upsert_jobs(repos.jobs, fetched, GH_ACME, NOW)
     assert len(upserted) == 3
 
-    extract_job_skills(con, upserted, SKILLS)
+    extract_job_skills(repos.jobs, repos.links, upserted, SKILLS)
     # job1 -> Python + Kubernetes(via k8s), job2 -> Python, job3 -> Python = 4 links
-    assert con.execute("SELECT count(*) FROM job_skills").fetchone()[0] == 4
+    assert repos.con.execute("SELECT count(*) FROM job_skills").fetchone()[0] == 4
 
-    aggregate_skill_demand(con, NOW)
-    python = con.execute(
+    aggregate_skill_demand(repos.jobs, repos.links, repos.demand, NOW)
+    python = repos.con.execute(
         "SELECT job_count FROM skill_demand WHERE role = 'Data Engineer' AND skill = 'Python'"
     ).fetchone()
-    k8s = con.execute(
+    k8s = repos.con.execute(
         "SELECT job_count FROM skill_demand WHERE role = 'Data Engineer' AND skill = 'Kubernetes'"
     ).fetchone()
     assert python[0] == 2  # jobs 1 and 2 (job 3 is Frontend)
     assert k8s[0] == 1
 
 
-def test_cross_source_duplicate_is_skipped(con):
+def test_cross_source_duplicate_is_skipped(repos):
     # Same company/title/location from two different sources in one run -> one job kept.
     fetched = [
         fj(GH, "acme", "g1", "Engineer", company="Acme", location="NYC"),
         fj(LV, "acme", "l1", "Engineer", company="Acme", location="NYC"),
     ]
     boards = {("greenhouse", "acme"), ("lever", "acme")}
-    upserted, _ = upsert_jobs(con, fetched, boards, NOW)
+    upserted, _ = upsert_jobs(repos.jobs, fetched, boards, NOW)
     assert len(upserted) == 1
-    assert con.execute("SELECT count(*) FROM jobs").fetchone()[0] == 1
+    assert repos.con.execute("SELECT count(*) FROM jobs").fetchone()[0] == 1
 
 
-def test_lifecycle_deactivates_vanished_jobs_for_succeeded_board(con):
-    upsert_jobs(con, [fj(GH, "acme", "1", "Engineer")], GH_ACME, NOW)
-    assert con.execute("SELECT count(*) FROM jobs WHERE is_active").fetchone()[0] == 1
+def test_lifecycle_deactivates_vanished_jobs_for_succeeded_board(repos):
+    upsert_jobs(repos.jobs, [fj(GH, "acme", "1", "Engineer")], GH_ACME, NOW)
+    assert repos.con.execute("SELECT count(*) FROM jobs WHERE is_active").fetchone()[0] == 1
 
     # Board fetched successfully but returned nothing -> the job is deactivated.
-    _, deactivated = upsert_jobs(con, [], GH_ACME, NOW)
+    _, deactivated = upsert_jobs(repos.jobs, [], GH_ACME, NOW)
     assert deactivated == 1
-    assert con.execute("SELECT count(*) FROM jobs WHERE is_active").fetchone()[0] == 0
+    assert repos.con.execute("SELECT count(*) FROM jobs WHERE is_active").fetchone()[0] == 0
 
 
-def test_failed_board_does_not_deactivate_its_jobs(con):
-    upsert_jobs(con, [fj(GH, "acme", "1", "Engineer")], GH_ACME, NOW)
+def test_failed_board_does_not_deactivate_its_jobs(repos):
+    upsert_jobs(repos.jobs, [fj(GH, "acme", "1", "Engineer")], GH_ACME, NOW)
     # Empty fetch AND the board is not in succeeded set (it failed) -> leave untouched.
-    _, deactivated = upsert_jobs(con, [], set(), NOW)
+    _, deactivated = upsert_jobs(repos.jobs, [], set(), NOW)
     assert deactivated == 0
-    assert con.execute("SELECT count(*) FROM jobs WHERE is_active").fetchone()[0] == 1
+    assert repos.con.execute("SELECT count(*) FROM jobs WHERE is_active").fetchone()[0] == 1

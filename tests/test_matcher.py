@@ -2,8 +2,8 @@
 
 import pytest
 
-from skillradar.skills.guards import DEFAULT_GUARDS
-from skillradar.skills.matcher import SkillMatcher, SkillTerms
+from skillradar.domain.skills.guards import DEFAULT_GUARDS
+from skillradar.domain.skills.matcher import SkillMatcher, SkillTerms
 
 
 def build_matcher() -> SkillMatcher:

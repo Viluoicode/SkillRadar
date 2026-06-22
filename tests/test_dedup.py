@@ -1,6 +1,6 @@
 """Port of the .NET DedupHasherTests."""
 
-from skillradar.common.dedup import compute_dedup_hash
+from skillradar.domain.dedup import compute_dedup_hash
 
 
 def test_same_fields_produce_same_hash():
