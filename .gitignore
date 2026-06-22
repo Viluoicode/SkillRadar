@@ -1,15 +1,34 @@
-# .NET
+# Python (active product at repo root)
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# uv
+uv.lock
+
+# Data outputs (the pipeline regenerates these; CI may commit them instead)
+data/bronze/*.parquet
+data/gold/*.parquet
+data/*.duckdb
+data/*.duckdb.wal
+
+# Keep the seed inputs and the data dir structure
+!data/sources.json
+!data/skills.seed.json
+
+# .NET / Node build artifacts (reference/dotnet-original)
 bin/
 obj/
 *.user
 .vs/
-
-# Node / Vite
 node_modules/
-web/dist/
-web/node_modules/
+dist/
 
-# Env / local
+# Local
 *.env
 .DS_Store
 debug.log
