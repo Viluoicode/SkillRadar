@@ -1,7 +1,8 @@
 """SkillRadar dashboard (Streamlit) — presentation only.
 
-All SQL lives in ``DuckDbServingReadModel`` (infrastructure); this module just builds
-filter state and renders charts/tables. Run:  streamlit run dashboard/app.py
+All SQL lives in ``DuckDbServingReadModel`` (infrastructure) and all gap logic in
+``skillradar.domain.skillgap``; this module just builds filter state and renders. Run:
+  streamlit run dashboard/app.py
 """
 
 from __future__ import annotations
@@ -16,12 +17,16 @@ import streamlit as st
 # Make ``skillradar`` importable when running from the repo (src layout).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from skillradar.domain.skillgap import DemandedSkill, compute_skill_gap  # noqa: E402
+from skillradar.domain.skills.dictionary import build_matcher  # noqa: E402
+from skillradar.infrastructure.ai.anthropic_roadmap import AnthropicRoadmapGenerator  # noqa: E402
 from skillradar.infrastructure.config import load_config  # noqa: E402
 from skillradar.infrastructure.db.repositories import (  # noqa: E402
     DuckDbServingReadModel,
     JobFilters,
 )
 from skillradar.infrastructure.db.warehouse import connect  # noqa: E402
+from skillradar.infrastructure.skills.seed_loader import JsonSkillCatalog  # noqa: E402
 
 st.set_page_config(page_title="SkillRadar", page_icon="📡", layout="wide")
 CONFIG = load_config()
@@ -35,6 +40,56 @@ def get_read_model() -> DuckDbServingReadModel | None:
     return DuckDbServingReadModel(connect(CONFIG.duckdb_path, read_only=True))
 
 
+@st.cache_resource
+def get_matcher():
+    """The skill matcher + an id→name map, built from the same dictionary the pipeline uses,
+    so a user's pasted skills are parsed exactly like a job description."""
+    skills = JsonSkillCatalog(CONFIG.skills_path).load()
+    return build_matcher(skills), {s.skill_id: s.name for s in skills}
+
+
+@st.cache_resource
+def get_roadmap_generator() -> AnthropicRoadmapGenerator:
+    return AnthropicRoadmapGenerator(model=CONFIG.llm_model, cache_dir=CONFIG.roadmap_cache_dir)
+
+
+def _refresh_data():
+    """Run Bronze→Silver→Gold in-process, then drop cached connections so the dashboard reloads
+    fresh data. The read-only connection is released first — DuckDB can't hold read-only and
+    read-write handles to the same file at once within a process."""
+    from skillradar.application.pipeline import run_pipeline
+    from skillradar.interface.cli import build_pipeline
+
+    existing = get_read_model()
+    if existing is not None:
+        existing.close()
+    get_read_model.clear()
+
+    deps, con = build_pipeline(CONFIG)
+    try:
+        return run_pipeline(deps, trigger="dashboard")
+    finally:
+        con.close()
+
+
+def render_sidebar() -> None:
+    with st.sidebar:
+        st.subheader("Data")
+        st.caption("Pull the latest postings from every board and re-extract skills (~1–2 min).")
+        if st.button("🔄 Refresh data", use_container_width=True):
+            try:
+                with st.spinner("Fetching latest jobs from all boards…"):
+                    result = _refresh_data()
+            except Exception as exc:  # surface source/network errors instead of crashing the app
+                st.error(f"Refresh failed: {exc}")
+            else:
+                st.toast(
+                    f"Refreshed: {result.jobs_upserted} jobs, {result.demand_rows} demand rows",
+                    icon="✅",
+                )
+                st.rerun()
+
+
 def main() -> None:
     st.title("📡 SkillRadar")
     st.caption(
@@ -42,14 +97,24 @@ def main() -> None:
         "aggregated into in-demand skills per role. Read-only — every posting links to its source."
     )
 
+    render_sidebar()
+
     read_model = get_read_model()
     if read_model is None:
-        st.warning(
-            "No data yet. Run the pipeline first:\n\n"
-            "```\npython -m skillradar.interface.cli\n```"
+        st.info(
+            "No data yet — click **🔄 Refresh data** in the sidebar to fetch jobs from all "
+            "boards (~1–2 min)."
         )
         st.stop()
 
+    tab_explore, tab_gap = st.tabs(["Explore", "Skill-gap"])
+    with tab_explore:
+        render_explore(read_model)
+    with tab_gap:
+        render_skill_gap(read_model)
+
+
+def render_explore(read_model: DuckDbServingReadModel) -> None:
     # ---- Stats header ----
     stats = read_model.stats()
     if not stats.empty:
@@ -153,6 +218,117 @@ def main() -> None:
                 "posted_at": st.column_config.DatetimeColumn("Posted", format="YYYY-MM-DD"),
             },
         )
+
+
+def render_skill_gap(read_model: DuckDbServingReadModel) -> None:
+    st.header("Skill-gap analysis")
+    st.caption(
+        "Paste your current skills and pick a target role to see exactly what you're missing — "
+        "ranked by how many real postings require it — then generate a learning roadmap."
+    )
+
+    roles = read_model.roles_latest()
+    if roles.empty:
+        st.info("No role-demand data yet — run the pipeline first.")
+        return
+
+    c1, c2 = st.columns([3, 1])
+    skills_text = c1.text_area(
+        "Your skills",
+        placeholder="e.g. python, sql, pandas, react, docker",
+        height=90,
+    )
+    role = c2.selectbox("Target role", roles["role"].tolist(), key="gap_role")
+    top_n = c2.slider("Compare top", 10, 40, 25, 5, key="gap_topn")
+
+    if not skills_text.strip():
+        st.info("Enter your skills above to see your gap.")
+        return
+
+    matcher, id_to_name = get_matcher()
+    user_skills = {id_to_name[i] for i in matcher.match(skills_text) if i in id_to_name}
+    if user_skills:
+        st.caption("Recognized skills: " + ", ".join(sorted(user_skills)))
+    else:
+        st.warning(
+            "Couldn't recognize any known skills there — try comma-separated names like "
+            "'Python, SQL, Docker'."
+        )
+
+    demand_df = read_model.demand(role, top_n)
+    if demand_df.empty:
+        st.info("No demand data for this role yet.")
+        return
+
+    role_total = read_model.role_total(role)
+    demanded = [
+        DemandedSkill(r["skill"], r["category"], int(r["job_count"]))
+        for r in demand_df.to_dict("records")
+    ]
+    result = compute_skill_gap(role, user_skills, demanded, role_total)
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Demand coverage", f"{result.coverage:.0%}")
+    m2.metric("Skills you have", f"{len(result.have)}/{len(demanded)}")
+    m3.metric(f"{role} postings", role_total)
+
+    if result.missing:
+        st.subheader("Top skills you're missing")
+        missing_df = pd.DataFrame(
+            {
+                "skill": g.skill,
+                "share": g.share,
+                "category": g.category,
+                "job_count": g.job_count,
+            }
+            for g in result.missing
+        )
+        chart = (
+            alt.Chart(missing_df)
+            .mark_bar()
+            .encode(
+                x=alt.X(
+                    "share:Q",
+                    title="% of postings requiring it",
+                    axis=alt.Axis(format="%"),
+                ),
+                y=alt.Y("skill:N", sort="-x", title=None),
+                color=alt.Color("category:N", title="Category"),
+                tooltip=[
+                    "skill",
+                    "category",
+                    alt.Tooltip("share:Q", format=".0%", title="Share"),
+                    "job_count",
+                ],
+            )
+            .properties(height=max(250, 24 * len(missing_df)))
+        )
+        st.altair_chart(chart, use_container_width=True)
+    else:
+        st.success("You already cover every top skill for this role. 🎉")
+
+    # ---- AI learning roadmap (optional enrichment) ----
+    st.subheader("AI learning roadmap")
+    generator = get_roadmap_generator()
+    if not generator.available:
+        st.info(
+            "Set `ANTHROPIC_API_KEY` and install the extra (`pip install -e \".[ai]\"`) to "
+            "generate a personalized roadmap from your gap. The ranked gap above works without it."
+        )
+    elif not result.missing:
+        st.caption("No gap to plan — nothing to generate.")
+    elif st.button("Generate roadmap", type="primary"):
+        with st.spinner("Generating roadmap…"):
+            roadmap = generator.generate(role, result.missing)
+        if roadmap is None:
+            st.warning("Couldn't generate a roadmap right now. The ranked gap above still applies.")
+        else:
+            st.markdown(f"**{roadmap.summary}**")
+            for i, step in enumerate(roadmap.steps, start=1):
+                with st.expander(f"{i}. {step.skill}", expanded=i <= 3):
+                    st.write(step.why)
+                    if step.resources:
+                        st.markdown("\n".join(f"- {r}" for r in step.resources))
 
 
 if __name__ == "__main__":

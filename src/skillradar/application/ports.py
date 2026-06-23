@@ -14,6 +14,7 @@ from typing import Protocol
 from skillradar.application.dto import BoardConfig, FetchOutcome, RunRecord
 from skillradar.domain.models import FetchedJob, JobSource
 from skillradar.domain.records import ActiveJob, DemandRow, JobRecord, JobText, SkillLink
+from skillradar.domain.skillgap import GapSkill, Roadmap
 from skillradar.domain.skills.dictionary import Skill
 
 
@@ -79,3 +80,12 @@ class RunRepository(Protocol):
     """Persistence for the meta ``ingestion_runs`` table."""
 
     def record(self, run: RunRecord) -> None: ...
+
+
+class LearningRoadmapGenerator(Protocol):
+    """Optional LLM enrichment: turn the ranked skill gap into a learning roadmap.
+
+    Implementations MUST return ``None`` when generation is unavailable (e.g. no API key) so
+    the data-driven gap still renders without it."""
+
+    def generate(self, role: str, missing: Sequence[GapSkill]) -> Roadmap | None: ...

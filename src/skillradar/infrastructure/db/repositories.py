@@ -15,7 +15,12 @@ import pandas as pd
 
 from skillradar.application.dto import RunRecord
 from skillradar.domain.records import ActiveJob, DemandRow, JobRecord, JobText, SkillLink
+from skillradar.domain.roles import DEFAULT_ROLES
 from skillradar.infrastructure.db.warehouse import JOB_COLUMNS
+
+# Role -> title patterns, used to count a role's postings at read time (the denominator for
+# "% of postings requiring a skill"). Mirrors how the Gold aggregation classifies a job.
+_ROLE_PATTERNS: dict[str, list[str]] = {name: patterns for name, patterns in DEFAULT_ROLES}
 
 
 def _opt(value: object) -> object | None:
@@ -224,6 +229,11 @@ class DuckDbServingReadModel:
     def __init__(self, con: duckdb.DuckDBPyConnection) -> None:
         self._con = con
 
+    def close(self) -> None:
+        """Release the DuckDB connection (and its file lock) — e.g. before an in-process
+        pipeline refresh needs to open the same database read-write."""
+        self._con.close()
+
     def stats(self) -> pd.DataFrame:
         return self._con.execute(
             "SELECT (SELECT count(*) FROM jobs WHERE is_active) AS active_jobs, "
@@ -244,6 +254,23 @@ class DuckDbServingReadModel:
             "ORDER BY job_count DESC, skill LIMIT ?",
             [role, top_n],
         ).df()
+
+    def role_total(self, role: str) -> int:
+        """Count distinct postings (deduped cross-source by content hash) that classify into
+        ``role`` — the denominator for "% of postings requiring a skill". Mirrors the Gold
+        aggregation: an active job belongs to the role when its lower-cased title contains any
+        of the role's patterns."""
+        patterns = _ROLE_PATTERNS.get(role)
+        if not patterns:
+            return 0
+        likes = " OR ".join(["lower(j.title) LIKE ?"] * len(patterns))
+        params = [f"%{p}%" for p in patterns]
+        df = self._con.execute(
+            f"SELECT count(DISTINCT j.dedup_hash) AS n FROM jobs j "
+            f"WHERE j.is_active AND ({likes})",
+            params,
+        ).df()
+        return int(df.at[0, "n"]) if not df.empty else 0
 
     def trends(self, role: str, top_n: int) -> pd.DataFrame:
         """Demand over time for a role's current top-``top_n`` skills (from ``skill_trends``).

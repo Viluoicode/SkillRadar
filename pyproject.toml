@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 orchestration = ["prefect>=2.16"]
+ai = ["anthropic>=0.40"]  # optional LLM learning-roadmap enrichment
 dev = ["pytest>=8", "ruff>=0.4"]
 
 [project.scripts]

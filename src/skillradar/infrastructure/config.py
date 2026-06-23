@@ -22,6 +22,10 @@ def _env_int(name: str, default: int) -> int:
     return int(value) if value else default
 
 
+def _env_str(name: str, default: str) -> str:
+    return os.environ.get(name) or default
+
+
 @dataclass(frozen=True)
 class Config:
     sources_path: Path = _env_path("SKILLRADAR_SOURCES", DATA_DIR / "sources.json")
@@ -30,6 +34,9 @@ class Config:
     bronze_dir: Path = _env_path("SKILLRADAR_BRONZE", DATA_DIR / "bronze")
     # Polite delay between board calls so we never hammer a source.
     delay_between_boards_ms: int = _env_int("SKILLRADAR_DELAY_MS", 500)
+    # Optional LLM learning-roadmap enrichment (needs ANTHROPIC_API_KEY at runtime).
+    llm_model: str = _env_str("SKILLRADAR_LLM_MODEL", "claude-haiku-4-5")
+    roadmap_cache_dir: Path = _env_path("SKILLRADAR_ROADMAP_CACHE", DATA_DIR / "roadmap_cache")
 
 
 def load_config() -> Config:

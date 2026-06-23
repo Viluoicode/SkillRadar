@@ -80,6 +80,19 @@ Python **3.12+** required.
 
 ## Run
 
+**One command — start the dashboard; refresh from the UI:**
+
+```bash
+streamlit run dashboard/app.py
+```
+
+The first time (no data yet) the dashboard prompts you to click **🔄 Refresh data** in the
+sidebar — that runs the full Bronze → Silver → Gold pipeline in-process (~1–2 min) and reloads
+with fresh jobs. Click it any time to pull the latest postings. No separate pipeline command
+needed.
+
+For headless / scheduled use (the daily CI cron uses this), run the pipeline directly:
+
 ```bash
 # M0 spike — prove you can pull real data
 python m0_spike.py
@@ -92,9 +105,6 @@ duckdb data/skillradar.duckdb \
   "SELECT role, skill, job_count FROM skill_demand \
    WHERE snapshot_date = (SELECT max(snapshot_date) FROM skill_demand) \
    ORDER BY job_count DESC LIMIT 20"
-
-# Dashboard
-streamlit run dashboard/app.py
 ```
 
 ### Orchestrated run (Prefect, optional)
