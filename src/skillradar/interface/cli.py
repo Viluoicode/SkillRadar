@@ -5,12 +5,14 @@ Run:  python -m skillradar.interface.cli --trigger manual"""
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 import duckdb
 
 from skillradar.application.pipeline import PipelineDeps, run_pipeline
 from skillradar.infrastructure.bronze.parquet_store import ParquetBronzeStore
 from skillradar.infrastructure.config import Config, load_config
+from skillradar.infrastructure.db.maintenance import export_serving_db
 from skillradar.infrastructure.db.repositories import (
     DuckDbDemandRepository,
     DuckDbJobRepository,
@@ -41,10 +43,20 @@ def build_pipeline(config: Config) -> tuple[PipelineDeps, duckdb.DuckDBPyConnect
     return deps, con
 
 
+def _serving_db_path(config: Config) -> Path:
+    """The committable serving DB sits next to the working warehouse as ``serving.duckdb``."""
+    return config.duckdb_path.with_name("serving.duckdb")
+
+
 def main() -> None:
     configure_logging()
     parser = argparse.ArgumentParser(description="Run the SkillRadar Medallion pipeline.")
     parser.add_argument("--trigger", default="manual", help="Label recorded for this run.")
+    parser.add_argument(
+        "--export-serving",
+        action="store_true",
+        help="After the run, write a slim data/serving.duckdb (no descriptions) for deployment.",
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -62,6 +74,10 @@ def main() -> None:
     )
     for err in result.errors:
         print("  ! ", err)
+
+    if args.export_serving:
+        dst = export_serving_db(config.duckdb_path, _serving_db_path(config))
+        print(f"[serving] wrote {dst} ({dst.stat().st_size / 1e6:.1f} MB)")
 
 
 if __name__ == "__main__":

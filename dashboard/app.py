@@ -7,6 +7,7 @@ All SQL lives in ``DuckDbServingReadModel`` (infrastructure) and all gap logic i
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -20,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from skillradar.domain.skillgap import DemandedSkill, compute_skill_gap  # noqa: E402
 from skillradar.domain.skills.dictionary import build_matcher  # noqa: E402
 from skillradar.infrastructure.ai.anthropic_roadmap import AnthropicRoadmapGenerator  # noqa: E402
+from skillradar.infrastructure.ai.market_chat import MarketChatAgent  # noqa: E402
 from skillradar.infrastructure.config import load_config  # noqa: E402
 from skillradar.infrastructure.db.repositories import (  # noqa: E402
     DuckDbServingReadModel,
@@ -31,13 +33,32 @@ from skillradar.infrastructure.skills.seed_loader import JsonSkillCatalog  # noq
 st.set_page_config(page_title="SkillRadar", page_icon="📡", layout="wide")
 CONFIG = load_config()
 PAGE_SIZE = 25
+# Set on a hosted deployment (e.g. Streamlit Cloud). Hides the in-app Refresh button — the
+# container's filesystem is ephemeral, so data is refreshed by the scheduled CI pipeline instead.
+SERVE_ONLY = bool(os.environ.get("SKILLRADAR_SERVE_ONLY"))
+
+
+def _resolve_db_path() -> Path | None:
+    """The full working warehouse if present (local dev), else the slim committed serving DB
+    that CI commits for the hosted deployment. ``None`` when neither exists yet."""
+    if CONFIG.duckdb_path.exists():
+        return CONFIG.duckdb_path
+    serving = CONFIG.duckdb_path.with_name("serving.duckdb")
+    return serving if serving.exists() else None
+
+
+def _api_key() -> str | None:
+    """The Anthropic key for AI features: the one pasted into the sidebar this session, else the
+    ``ANTHROPIC_API_KEY`` env var. Bring-your-own-key keeps a public deploy free for the owner."""
+    return st.session_state.get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
 
 
 @st.cache_resource
 def get_read_model() -> DuckDbServingReadModel | None:
-    if not CONFIG.duckdb_path.exists():
+    db_path = _resolve_db_path()
+    if db_path is None:
         return None
-    return DuckDbServingReadModel(connect(CONFIG.duckdb_path, read_only=True))
+    return DuckDbServingReadModel(connect(db_path, read_only=True))
 
 
 @st.cache_resource
@@ -48,9 +69,12 @@ def get_matcher():
     return build_matcher(skills), {s.skill_id: s.name for s in skills}
 
 
-@st.cache_resource
 def get_roadmap_generator() -> AnthropicRoadmapGenerator:
-    return AnthropicRoadmapGenerator(model=CONFIG.llm_model, cache_dir=CONFIG.roadmap_cache_dir)
+    """Built per run (not cached) so it picks up the session's bring-your-own-key. Lightweight —
+    it only holds the model name, cache dir, and key."""
+    return AnthropicRoadmapGenerator(
+        model=CONFIG.llm_model, cache_dir=CONFIG.roadmap_cache_dir, api_key=_api_key()
+    )
 
 
 def _refresh_data():
@@ -75,19 +99,38 @@ def _refresh_data():
 def render_sidebar() -> None:
     with st.sidebar:
         st.subheader("Data")
-        st.caption("Pull the latest postings from every board and re-extract skills (~1–2 min).")
-        if st.button("🔄 Refresh data", use_container_width=True):
-            try:
-                with st.spinner("Fetching latest jobs from all boards…"):
-                    result = _refresh_data()
-            except Exception as exc:  # surface source/network errors instead of crashing the app
-                st.error(f"Refresh failed: {exc}")
-            else:
-                st.toast(
-                    f"Refreshed: {result.jobs_upserted} jobs, {result.demand_rows} demand rows",
-                    icon="✅",
-                )
-                st.rerun()
+        if SERVE_ONLY:
+            st.caption("Data refreshes daily via the scheduled pipeline (GitHub Actions).")
+        else:
+            st.caption(
+                "Pull the latest postings from every board and re-extract skills (~1–2 min)."
+            )
+            if st.button("🔄 Refresh data", use_container_width=True):
+                try:
+                    with st.spinner("Fetching latest jobs from all boards…"):
+                        result = _refresh_data()
+                except Exception as exc:  # surface source/network errors instead of crashing
+                    st.error(f"Refresh failed: {exc}")
+                else:
+                    st.toast(
+                        f"Refreshed: {result.jobs_upserted} jobs, {result.demand_rows} demand rows",
+                        icon="✅",
+                    )
+                    st.rerun()
+
+        st.divider()
+        st.subheader("AI features")
+        st.caption(
+            "Paste an Anthropic API key to enable the AI roadmap and the **Ask** tab. It stays in "
+            "this browser session only — it is never stored or sent anywhere but Anthropic."
+        )
+        st.text_input(
+            "Anthropic API key",
+            type="password",
+            key="api_key",
+            placeholder="sk-ant-...",
+            help="Get one at console.anthropic.com. Explore and Skill-gap work without it.",
+        )
 
 
 def main() -> None:
@@ -101,17 +144,22 @@ def main() -> None:
 
     read_model = get_read_model()
     if read_model is None:
-        st.info(
-            "No data yet — click **🔄 Refresh data** in the sidebar to fetch jobs from all "
-            "boards (~1–2 min)."
-        )
+        if SERVE_ONLY:
+            st.info("No data available yet — the scheduled pipeline hasn't published a snapshot.")
+        else:
+            st.info(
+                "No data yet — click **🔄 Refresh data** in the sidebar to fetch jobs from all "
+                "boards (~1–2 min)."
+            )
         st.stop()
 
-    tab_explore, tab_gap = st.tabs(["Explore", "Skill-gap"])
+    tab_explore, tab_gap, tab_ask = st.tabs(["Explore", "Skill-gap", "Ask"])
     with tab_explore:
         render_explore(read_model)
     with tab_gap:
         render_skill_gap(read_model)
+    with tab_ask:
+        render_ask(read_model)
 
 
 def render_explore(read_model: DuckDbServingReadModel) -> None:
@@ -312,8 +360,8 @@ def render_skill_gap(read_model: DuckDbServingReadModel) -> None:
     generator = get_roadmap_generator()
     if not generator.available:
         st.info(
-            "Set `ANTHROPIC_API_KEY` and install the extra (`pip install -e \".[ai]\"`) to "
-            "generate a personalized roadmap from your gap. The ranked gap above works without it."
+            "Add an **Anthropic API key** in the sidebar to generate a personalized roadmap from "
+            "your gap. The ranked gap above works without it."
         )
     elif not result.missing:
         st.caption("No gap to plan — nothing to generate.")
@@ -329,6 +377,60 @@ def render_skill_gap(read_model: DuckDbServingReadModel) -> None:
                     st.write(step.why)
                     if step.resources:
                         st.markdown("\n".join(f"- {r}" for r in step.resources))
+
+
+def _render_tool_calls(tool_calls: list) -> None:
+    if tool_calls:
+        with st.expander("Data I queried"):
+            for tc in tool_calls:
+                st.code(f"{tc['name']}({tc['input']})", language="python")
+
+
+def render_ask(read_model: DuckDbServingReadModel) -> None:
+    st.header("Ask the market")
+    st.caption(
+        "Ask anything about the aggregated postings — answers come from the real data via "
+        "structured queries, with the jobs/numbers they're based on."
+    )
+
+    # Lightweight: the agent just holds a reference to the read model, so build it per run
+    # (no caching) — this always uses the current connection, even after a Refresh. The skill
+    # resolver reuses the same matcher as the pipeline, so "ml"/"k8s" map to canonical names.
+    matcher, id_to_name = get_matcher()
+
+    def _resolver(query: str) -> list[str]:
+        return sorted({id_to_name[i] for i in matcher.match(query) if i in id_to_name})
+
+    agent = MarketChatAgent(
+        read_model, model=CONFIG.llm_model, api_key=_api_key(), skill_resolver=_resolver
+    )
+    if not agent.available:
+        st.info(
+            "Add an **Anthropic API key** in the sidebar to chat with the market. The Explore and "
+            "Skill-gap tabs work without it."
+        )
+        return
+
+    history = st.session_state.setdefault("ask_history", [])
+    for msg in history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"] or "_(no answer)_")
+            if msg["role"] == "assistant":
+                _render_tool_calls(msg.get("tool_calls", []))
+
+    prompt = st.chat_input("e.g. Which remote companies want Rust?")
+    if not prompt:
+        return
+
+    history.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    with st.chat_message("assistant"):
+        with st.spinner("Querying the market…"):
+            result = agent.answer(prompt)
+        st.markdown(result.text or "_(no answer)_")
+        _render_tool_calls(result.tool_calls)
+    history.append({"role": "assistant", "content": result.text, "tool_calls": result.tool_calls})
 
 
 if __name__ == "__main__":

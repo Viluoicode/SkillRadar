@@ -26,14 +26,17 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system -e .
 
-      - name: Run pipeline
-        run: python -m skillradar.interface.cli --trigger github-actions
+      - name: Run pipeline and export the slim serving DB
+        run: python -m skillradar.interface.cli --trigger github-actions --export-serving
 
-      - name: Commit refreshed data
+      - name: Commit refreshed serving data
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f data/skillradar.duckdb data/bronze/*.parquet
+          # Only the slim, description-free serving DB is committed (a few MB) — it is what
+          # Streamlit Community Cloud serves. It is gitignored (a generated data artifact), so
+          # force-add it here; the full working warehouse + bronze stay untracked.
+          git add -f data/serving.duckdb
           if git diff --staged --quiet; then
             echo "No data changes to commit."
           else

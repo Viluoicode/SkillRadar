@@ -20,6 +20,8 @@ data/roadmap_cache/
 # Keep the seed inputs and the data dir structure
 !data/sources.json
 !data/skills.seed.json
+# Note: data/serving.duckdb (the slim DB Streamlit Cloud serves) stays ignored too — it is a
+# generated data artifact, not source. The daily CI pipeline force-commits it; humans don't.
 
 # .NET / Node build artifacts (reference/dotnet-original)
 bin/
@@ -33,3 +35,8 @@ dist/
 *.env
 .DS_Store
 debug.log
+
+# Agent / onboarding docs — local context only, kept out of the project repo
+.claude/
+CLAUDE.md
+HANDOFF.md

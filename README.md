@@ -137,23 +137,55 @@ Paths default to the repo's `data/`. Override with env vars when needed:
 | `SKILLRADAR_DUCKDB` | `data/skillradar.duckdb` |
 | `SKILLRADAR_BRONZE` | `data/bronze/` |
 | `SKILLRADAR_DELAY_MS` | `500` (polite delay between board calls) |
+| `SKILLRADAR_LLM_MODEL` | `claude-haiku-4-5` (AI roadmap + Ask tab) |
+| `SKILLRADAR_ROADMAP_CACHE` | `data/roadmap_cache/` |
+| `SKILLRADAR_SERVE_ONLY` | unset; set to `1` on hosted deploys to hide the Refresh button |
+| `ANTHROPIC_API_KEY` | unset; enables AI features (or paste a key in the sidebar) |
 
 Add or remove companies by editing `data/sources.json`; extend the dictionary via
 `data/skills.seed.json`.
 
 ## Deployment (zero server cost)
 
-- **GitHub Actions** (`.github/workflows/pipeline.yml`) runs the pipeline daily and commits
-  the refreshed DuckDB + Parquet.
-- **Streamlit Community Cloud** hosts `dashboard/app.py`, reading the committed data.
+The app runs on **Streamlit Community Cloud** reading a small committed snapshot — no server, no
+database to host. Two pieces:
+
+- **Data**: GitHub Actions (`.github/workflows/pipeline.yml`) runs the pipeline daily and commits
+  a slim **`data/serving.duckdb`** — a compact, description-free copy (a few MB, vs. the bloated
+  full warehouse) produced by `skillradar --export-serving`. That committed file is what the hosted
+  app serves. The full working warehouse and Bronze Parquet stay untracked.
+- **App**: Streamlit Community Cloud hosts `dashboard/app.py`, reading `serving.duckdb` from the
+  repo (it falls back to the full local DB when present, so dev is unaffected).
+
+### Deploy steps
+
+1. Push the source manifests to GitHub (`requirements.txt`, `.python-version`,
+   `.streamlit/config.toml`). The serving DB itself is a generated artifact (gitignored) — the
+   daily Action commits it; trigger it once now via the **Actions → Pipeline → Run workflow**
+   button so the first snapshot lands. (Locally you can preview it with
+   `python -m skillradar.interface.cli --export-serving`.)
+2. On [share.streamlit.io](https://share.streamlit.io) create an app → point it at
+   `dashboard/app.py` on the `main` branch.
+3. In the app's **Settings → Secrets**, add `SKILLRADAR_SERVE_ONLY = "1"`. This hides the in-app
+   Refresh button (the hosted filesystem is ephemeral) — refreshes come from the daily cron.
+
+### AI features on the public URL (bring-your-own-key)
+
+The **Ask** tab and the AI roadmap need an Anthropic key. To keep the public deployment free for
+the owner, the app uses **bring-your-own-key**: each visitor pastes *their own* key into the
+sidebar (kept in their browser session only, never stored). Without a key, Explore and Skill-gap
+work fully. Locally you can instead set `ANTHROPIC_API_KEY` in the environment.
 
 ## Roadmap
 
 Done: M0–M6 (ingestion → Bronze → Silver → Gold → dashboard → orchestration/CI), a full
 Clean-Architecture restructure, the Definition-of-Done source coverage (35 ATS boards + the
-Arbeitnow aggregator), and **M7** — a demand-trend chart over daily `skill_trends` snapshots.
-Next: a skill-gap input (your skills vs. demand) in the dashboard; optional LLM enrichment
-for smarter skill/seniority extraction; deploy to Streamlit Community Cloud.
+Arbeitnow aggregator), **M7** (demand-trend chart over daily `skill_trends` snapshots),
+**M8** (skill-gap input + optional AI learning roadmap), **M9** (the *Ask the market* chat —
+grounded Q&A via structured tool-use over the corpus), and the **Streamlit Community Cloud
+deployment** (slim committed serving DB + bring-your-own-key AI).
+Next: optional LLM enrichment for smarter skill/seniority extraction; semantic résumé→jobs
+matching; a weekly AI market brief.
 
 ### Adding a new source
 
