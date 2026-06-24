@@ -304,6 +304,22 @@ class DuckDbServingReadModel:
             "SELECT DISTINCT source FROM jobs ORDER BY source"
         ).df()["source"].tolist()
 
+    def companies_hiring(self, skill: str | None = None, limit: int = 10) -> pd.DataFrame:
+        """Top companies by active-posting count, optionally restricted to jobs requiring
+        ``skill``. Answers "which companies want X?"."""
+        clauses = ["j.is_active"]
+        params: list = []
+        if skill:
+            clauses.append("j.job_id IN (SELECT job_id FROM job_skills WHERE skill = ?)")
+            params.append(skill)
+        params.append(int(limit))
+        return self._con.execute(
+            f"SELECT j.company, count(*) AS job_count FROM jobs j "
+            f"WHERE {' AND '.join(clauses)} "
+            f"GROUP BY j.company ORDER BY job_count DESC, j.company LIMIT ?",
+            params,
+        ).df()
+
     def job_count(self, f: JobFilters) -> int:
         where, params = self._where(f)
         df = self._con.execute(f"SELECT count(*) AS n FROM jobs j WHERE {where}", params).df()
