@@ -37,6 +37,19 @@ class Config:
     # Optional LLM learning-roadmap enrichment (needs ANTHROPIC_API_KEY at runtime).
     llm_model: str = _env_str("SKILLRADAR_LLM_MODEL", "claude-haiku-4-5")
     roadmap_cache_dir: Path = _env_path("SKILLRADAR_ROADMAP_CACHE", DATA_DIR / "roadmap_cache")
+    # MotherDuck database name used in production (when MOTHERDUCK_TOKEN is set). See data_target.
+    motherduck_database: str = _env_str("SKILLRADAR_MOTHERDUCK_DB", "skillradar")
+
+
+def data_target(config: Config) -> str:
+    """The single source of truth for *where the warehouse lives*.
+
+    Returns a MotherDuck target (``md:<db>``) when ``MOTHERDUCK_TOKEN`` is set — the production
+    data layer, a cloud DuckDB — otherwise the local DuckDB file path for development. The token
+    itself is read from the environment by DuckDB's MotherDuck extension at connect time."""
+    if os.environ.get("MOTHERDUCK_TOKEN"):
+        return f"md:{config.motherduck_database}"
+    return str(config.duckdb_path)
 
 
 def load_config() -> Config:

@@ -97,9 +97,17 @@ CREATE TABLE IF NOT EXISTS ingestion_runs (
 _ALL_DDL = (_JOBS_DDL, _JOB_SKILLS_DDL, _SKILL_DEMAND_DDL, _SKILL_TRENDS_DDL, _RUNS_DDL)
 
 
-def connect(path: str | Path, read_only: bool = False) -> duckdb.DuckDBPyConnection:
-    """Open (and create) the DuckDB warehouse at ``path``."""
-    path = Path(path)
+def connect(target: str | Path, read_only: bool = False) -> duckdb.DuckDBPyConnection:
+    """Open the warehouse — a local DuckDB file, or a MotherDuck cloud database.
+
+    A ``md:<db>`` target connects to MotherDuck (token from the ``MOTHERDUCK_TOKEN`` env var,
+    read by DuckDB's extension); concurrency is handled server-side, so the local-file
+    ``read_only``/lock and ``mkdir`` semantics don't apply. Any other target is a local file path
+    and keeps the original behavior (parent dir created on write)."""
+    target = str(target)
+    if target.startswith("md:"):
+        return duckdb.connect(target)
+    path = Path(target)
     if not read_only:
         path.parent.mkdir(parents=True, exist_ok=True)
     return duckdb.connect(str(path), read_only=read_only)

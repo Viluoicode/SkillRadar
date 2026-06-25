@@ -22,7 +22,7 @@ from skillradar.domain.skillgap import DemandedSkill, compute_skill_gap  # noqa:
 from skillradar.domain.skills.dictionary import build_matcher  # noqa: E402
 from skillradar.infrastructure.ai.anthropic_roadmap import AnthropicRoadmapGenerator  # noqa: E402
 from skillradar.infrastructure.ai.market_chat import MarketChatAgent  # noqa: E402
-from skillradar.infrastructure.config import load_config  # noqa: E402
+from skillradar.infrastructure.config import data_target, load_config  # noqa: E402
 from skillradar.infrastructure.db.repositories import (  # noqa: E402
     DuckDbServingReadModel,
     JobFilters,
@@ -38,15 +38,6 @@ PAGE_SIZE = 25
 SERVE_ONLY = bool(os.environ.get("SKILLRADAR_SERVE_ONLY"))
 
 
-def _resolve_db_path() -> Path | None:
-    """The full working warehouse if present (local dev), else the slim committed serving DB
-    that CI commits for the hosted deployment. ``None`` when neither exists yet."""
-    if CONFIG.duckdb_path.exists():
-        return CONFIG.duckdb_path
-    serving = CONFIG.duckdb_path.with_name("serving.duckdb")
-    return serving if serving.exists() else None
-
-
 def _api_key() -> str | None:
     """The Anthropic key for AI features: the one pasted into the sidebar this session, else the
     ``ANTHROPIC_API_KEY`` env var. Bring-your-own-key keeps a public deploy free for the owner."""
@@ -55,10 +46,12 @@ def _api_key() -> str | None:
 
 @st.cache_resource
 def get_read_model() -> DuckDbServingReadModel | None:
-    db_path = _resolve_db_path()
-    if db_path is None:
+    """Read model over the warehouse — MotherDuck in production, a local DuckDB file in dev.
+    Returns ``None`` only for local dev when no file exists yet (prompts a Refresh)."""
+    target = data_target(CONFIG)
+    if not target.startswith("md:") and not Path(target).exists():
         return None
-    return DuckDbServingReadModel(connect(db_path, read_only=True))
+    return DuckDbServingReadModel(connect(target, read_only=True))
 
 
 @st.cache_resource

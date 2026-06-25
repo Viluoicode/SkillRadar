@@ -11,7 +11,7 @@ import duckdb
 
 from skillradar.application.pipeline import PipelineDeps, run_pipeline
 from skillradar.infrastructure.bronze.parquet_store import ParquetBronzeStore
-from skillradar.infrastructure.config import Config, load_config
+from skillradar.infrastructure.config import Config, data_target, load_config
 from skillradar.infrastructure.db.maintenance import export_serving_db
 from skillradar.infrastructure.db.repositories import (
     DuckDbDemandRepository,
@@ -27,8 +27,11 @@ from skillradar.infrastructure.sources.registry import HttpBoardFetcher
 
 
 def build_pipeline(config: Config) -> tuple[PipelineDeps, duckdb.DuckDBPyConnection]:
-    """Wire infrastructure adapters into the pipeline's ports. Caller owns the connection."""
-    con = connect(config.duckdb_path)
+    """Wire infrastructure adapters into the pipeline's ports. Caller owns the connection.
+
+    Writes to MotherDuck in production (``MOTHERDUCK_TOKEN`` set) or a local DuckDB file in dev —
+    see :func:`data_target`."""
+    con = connect(data_target(config))
     ensure_schema(con)
     deps = PipelineDeps(
         board_catalog=JsonBoardCatalog(config.sources_path),
@@ -76,8 +79,11 @@ def main() -> None:
         print("  ! ", err)
 
     if args.export_serving:
-        dst = export_serving_db(config.duckdb_path, _serving_db_path(config))
-        print(f"[serving] wrote {dst} ({dst.stat().st_size / 1e6:.1f} MB)")
+        if data_target(config).startswith("md:"):
+            print("[serving] skipped — warehouse is MotherDuck (no local file to slim).")
+        else:
+            dst = export_serving_db(config.duckdb_path, _serving_db_path(config))
+            print(f"[serving] wrote {dst} ({dst.stat().st_size / 1e6:.1f} MB)")
 
 
 if __name__ == "__main__":

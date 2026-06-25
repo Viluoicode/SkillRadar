@@ -1,6 +1,5 @@
-# Daily ingestion: run the Medallion pipeline and commit the refreshed DuckDB + Parquet.
-# The Python pipeline is the repository root; Streamlit Community Cloud then serves the
-# committed data — zero server cost.
+# Daily ingestion: run the Medallion pipeline, writing straight to MotherDuck (the production
+# data layer). No data is committed to git — Streamlit Cloud reads the same MotherDuck database.
 name: Pipeline
 
 on:
@@ -8,12 +7,12 @@ on:
     - cron: "0 6 * * *" # daily at 06:00 UTC
   workflow_dispatch: {} # allow manual runs from the Actions tab
 
-permissions:
-  contents: write
-
 jobs:
   ingest:
     runs-on: ubuntu-latest
+    env:
+      MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
+      SKILLRADAR_MOTHERDUCK_DB: skillradar
     steps:
       - uses: actions/checkout@v4
 
@@ -26,20 +25,16 @@ jobs:
       - name: Install dependencies
         run: uv pip install --system -e .
 
-      - name: Run pipeline and export the slim serving DB
-        run: python -m skillradar.interface.cli --trigger github-actions --export-serving
+      - name: Run pipeline (writes to MotherDuck)
+        run: python -m skillradar.interface.cli --trigger github-actions
 
-      - name: Commit refreshed serving data
+      - name: Notify on failure
+        if: failure()
+        env:
+          ALERT_WEBHOOK: ${{ secrets.ALERT_WEBHOOK }} # Discord webhook URL (optional)
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Only the slim, description-free serving DB is committed (a few MB) — it is what
-          # Streamlit Community Cloud serves. It is gitignored (a generated data artifact), so
-          # force-add it here; the full working warehouse + bronze stay untracked.
-          git add -f data/serving.duckdb
-          if git diff --staged --quiet; then
-            echo "No data changes to commit."
-          else
-            git commit -m "data: daily refresh $(date -u +%Y-%m-%d)"
-            git push
+          if [ -n "$ALERT_WEBHOOK" ]; then
+            curl -sf -H "Content-Type: application/json" \
+              -d "{\"content\":\"⚠️ SkillRadar daily pipeline failed — run ${GITHUB_RUN_ID}. See GitHub Actions.\"}" \
+              "$ALERT_WEBHOOK" || true
           fi

@@ -8,9 +8,9 @@ dashboard of in-demand skills per role plus a filterable job list. Every posting
 its original source. The curated `data/sources.json` ships 35 ATS company boards + 1
 aggregator (~6.7k live postings, 130+ companies).
 
-This is the **active product**. The original ASP.NET Core implementation is archived for
-reference at [`reference/dotnet-original/`](reference/dotnet-original/) (the Python parity
-tests were ported from it); it is not built or tested in CI.
+This is the **active product**. The original ASP.NET Core implementation (the Python parity tests
+were ported from it) is preserved at the git tag **`dotnet-archive`** — see
+[`reference/README.md`](reference/README.md) to recover it; it is not part of this repo or CI.
 
 ## Stack
 
@@ -134,7 +134,9 @@ Paths default to the repo's `data/`. Override with env vars when needed:
 | --- | --- |
 | `SKILLRADAR_SOURCES` | `data/sources.json` |
 | `SKILLRADAR_SKILLS` | `data/skills.seed.json` |
-| `SKILLRADAR_DUCKDB` | `data/skillradar.duckdb` |
+| `SKILLRADAR_DUCKDB` | `data/skillradar.duckdb` (local dev; ignored when MotherDuck is set) |
+| `MOTHERDUCK_TOKEN` | unset; when set, the warehouse is MotherDuck (`md:<db>`) instead of a file |
+| `SKILLRADAR_MOTHERDUCK_DB` | `skillradar` (MotherDuck database name) |
 | `SKILLRADAR_BRONZE` | `data/bronze/` |
 | `SKILLRADAR_DELAY_MS` | `500` (polite delay between board calls) |
 | `SKILLRADAR_LLM_MODEL` | `claude-haiku-4-5` (AI roadmap + Ask tab) |
@@ -145,29 +147,29 @@ Paths default to the repo's `data/`. Override with env vars when needed:
 Add or remove companies by editing `data/sources.json`; extend the dictionary via
 `data/skills.seed.json`.
 
-## Deployment (zero server cost)
+## Deployment
 
-The app runs on **Streamlit Community Cloud** reading a small committed snapshot — no server, no
-database to host. Two pieces:
+The production data layer is **MotherDuck** (DuckDB-in-the-cloud) — the same SQL runs unchanged,
+and **no data is committed to git**. The pipeline writes to MotherDuck; the dashboard reads from
+it. Locally (no token) everything falls back to a DuckDB file, so dev is unchanged.
 
-- **Data**: GitHub Actions (`.github/workflows/pipeline.yml`) runs the pipeline daily and commits
-  a slim **`data/serving.duckdb`** — a compact, description-free copy (a few MB, vs. the bloated
-  full warehouse) produced by `skillradar --export-serving`. That committed file is what the hosted
-  app serves. The full working warehouse and Bronze Parquet stay untracked.
-- **App**: Streamlit Community Cloud hosts `dashboard/app.py`, reading `serving.duckdb` from the
-  repo (it falls back to the full local DB when present, so dev is unaffected).
+- **Data**: GitHub Actions (`.github/workflows/pipeline.yml`) runs the pipeline daily and writes
+  straight to MotherDuck (`MOTHERDUCK_TOKEN` secret). On failure it pings an optional alert webhook.
+- **App**: Streamlit Community Cloud hosts `dashboard/app.py`, reading the same MotherDuck database.
+- **Switch**: `data_target()` ([config.py](src/skillradar/infrastructure/config.py)) returns
+  `md:<db>` when `MOTHERDUCK_TOKEN` is set, else the local file path. One choke point, no SQL
+  changes (all queries flow through `connect()` in
+  [warehouse.py](src/skillradar/infrastructure/db/warehouse.py)).
 
 ### Deploy steps
 
-1. Push the source manifests to GitHub (`requirements.txt`, `.python-version`,
-   `.streamlit/config.toml`). The serving DB itself is a generated artifact (gitignored) — the
-   daily Action commits it; trigger it once now via the **Actions → Pipeline → Run workflow**
-   button so the first snapshot lands. (Locally you can preview it with
-   `python -m skillradar.interface.cli --export-serving`.)
-2. On [share.streamlit.io](https://share.streamlit.io) create an app → point it at
-   `dashboard/app.py` on the `main` branch.
-3. In the app's **Settings → Secrets**, add `SKILLRADAR_SERVE_ONLY = "1"`. This hides the in-app
-   Refresh button (the hosted filesystem is ephemeral) — refreshes come from the daily cron.
+1. Create a MotherDuck account (free tier), a database, and an access token.
+2. **GitHub** → repo Secrets: add `MOTHERDUCK_TOKEN` (and optionally `ALERT_WEBHOOK` for failure
+   pings). Run the **Actions → Pipeline → Run workflow** once to populate MotherDuck.
+3. **Streamlit Cloud** ([share.streamlit.io](https://share.streamlit.io)) → new app on
+   `dashboard/app.py` (branch `main`). In **Settings → Secrets** add `MOTHERDUCK_TOKEN`,
+   `SKILLRADAR_MOTHERDUCK_DB = "skillradar"`, and `SKILLRADAR_SERVE_ONLY = "1"` (hides the in-app
+   Refresh — refreshes come from the daily cron).
 
 ### AI features on the public URL (bring-your-own-key)
 
@@ -182,10 +184,11 @@ Done: M0–M6 (ingestion → Bronze → Silver → Gold → dashboard → orches
 Clean-Architecture restructure, the Definition-of-Done source coverage (35 ATS boards + the
 Arbeitnow aggregator), **M7** (demand-trend chart over daily `skill_trends` snapshots),
 **M8** (skill-gap input + optional AI learning roadmap), **M9** (the *Ask the market* chat —
-grounded Q&A via structured tool-use over the corpus), and the **Streamlit Community Cloud
-deployment** (slim committed serving DB + bring-your-own-key AI).
-Next: optional LLM enrichment for smarter skill/seniority extraction; semantic résumé→jobs
-matching; a weekly AI market brief.
+grounded Q&A via structured tool-use over the corpus), the **Streamlit Community Cloud deployment**
+(bring-your-own-key AI), and the **production data layer on MotherDuck** (no data in git) with
+pipeline failure alerting.
+Next: error tracking (Sentry) + an in-app pipeline-health panel; parallel/incremental ingestion
+and more sources; semantic résumé→jobs matching; a weekly AI market brief.
 
 ### Adding a new source
 
