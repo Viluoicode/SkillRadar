@@ -23,14 +23,6 @@ data/roadmap_cache/
 # Note: data/serving.duckdb (the slim DB Streamlit Cloud serves) stays ignored too — it is a
 # generated data artifact, not source. The daily CI pipeline force-commits it; humans don't.
 
-# .NET / Node build artifacts (reference/dotnet-original)
-bin/
-obj/
-*.user
-.vs/
-node_modules/
-dist/
-
 # Local
 *.env
 .DS_Store
