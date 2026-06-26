@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.dbtvenv/        # isolated Python 3.12 env for dbt (dbt-core doesn't support 3.14 yet)
 .env
 *.egg-info/
 .pytest_cache/
@@ -9,6 +10,15 @@ __pycache__/
 
 # uv
 uv.lock
+
+# dbt (transform/) — build artifacts, fetched packages, logs; the project source is committed
+transform/target/
+transform/dbt_packages/
+transform/logs/
+transform/.user.yml
+
+# Archived .NET implementation — preserved at the git tag `dotnet-archive`, not shipped on main
+reference/dotnet-original/
 
 # Data outputs (the pipeline regenerates these; CI may commit them instead)
 data/bronze/*.parquet
