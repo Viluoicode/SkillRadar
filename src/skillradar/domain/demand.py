@@ -19,10 +19,13 @@ def aggregate_demand(
     links: Iterable[SkillLink],
     snapshot_date: date,
 ) -> list[DemandRow]:
-    # Cross-source dedup: keep the first job seen for each content hash.
+    # Cross-source dedup: keep one representative per content hash. Order by job_id so the choice
+    # is deterministic (independent of DB scan order) — near-duplicate postings can share a hash
+    # yet carry slightly different extracted skills, so a stable representative keeps counts
+    # reproducible and lets the dbt Gold model (which keeps min(job_id) per hash) match exactly.
     seen_hashes: set[str] = set()
     kept: list[ActiveJob] = []
-    for job in active_jobs:
+    for job in sorted(active_jobs, key=lambda j: j.job_id):
         if job.dedup_hash in seen_hashes:
             continue
         seen_hashes.add(job.dedup_hash)

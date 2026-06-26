@@ -1,0 +1,21 @@
+version: 2
+
+sources:
+  - name: skillradar
+    description: >
+      Silver + meta tables written by the Python EL pipeline (Bronze->Silver). dbt reads these as
+      the input to the Silver->Gold transform; it never writes them.
+    schema: main
+    tables:
+      - name: jobs
+        description: "One row per posting — deduped cross-source, with first/last_seen + is_active."
+        # Source freshness: the daily pipeline should keep last_seen_at recent. Check with
+        # `dbt source freshness` (run in the daily prod job, not part of `dbt build`).
+        loaded_at_field: last_seen_at
+        freshness:
+          warn_after: { count: 3, period: day }
+          error_after: { count: 14, period: day }
+      - name: job_skills
+        description: "Extracted (job_id, skill, category) links from the regex skill matcher."
+      - name: ingestion_runs
+        description: "Per-run audit (trigger, timing, status, counts)."

@@ -21,8 +21,18 @@ jobs:
           uv venv --python 3.12
           uv pip install -e ".[dev]"
 
+      # dbt lives in its own env (dbt-core has no Python 3.14 wheels, and isolating it avoids
+      # clashing with the app's deps). The parity test finds it via SKILLRADAR_DBT_EXE and runs a
+      # real `dbt build` + dbt tests on a fixture warehouse.
+      - name: Install dbt (isolated env)
+        run: |
+          uv venv --python 3.12 .dbtvenv
+          uv pip install --python .dbtvenv/bin/python "dbt-duckdb>=1.9"
+
       - name: Ruff
         run: uv run ruff check .
 
-      - name: Tests
+      - name: Tests (incl. dbt parity)
+        env:
+          SKILLRADAR_DBT_EXE: ${{ github.workspace }}/.dbtvenv/bin/dbt
         run: uv run pytest

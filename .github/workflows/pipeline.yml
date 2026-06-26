@@ -24,8 +24,17 @@ jobs:
           uv venv --python 3.12
           uv pip install -e .
 
-      - name: Run pipeline (writes to MotherDuck)
-        run: uv run python -m skillradar.interface.cli --trigger github-actions
+      # dbt owns the Silver→Gold transform (the star schema + Gold marts). Isolated env so its deps
+      # never clash with the app's; the CLI invokes it via SKILLRADAR_DBT_EXE.
+      - name: Install dbt (isolated env)
+        run: |
+          uv venv --python 3.12 .dbtvenv
+          uv pip install --python .dbtvenv/bin/python "dbt-duckdb>=1.9"
+
+      - name: Run pipeline (Silver in Python, Gold via dbt → MotherDuck)
+        env:
+          SKILLRADAR_DBT_EXE: ${{ github.workspace }}/.dbtvenv/bin/dbt
+        run: uv run python -m skillradar.interface.cli --gold dbt --trigger github-actions
 
       - name: Notify on failure
         if: failure()

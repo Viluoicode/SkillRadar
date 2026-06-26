@@ -1,0 +1,112 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: "Conformed daily date dimension (contiguous spine)."
+    columns:
+      - name: date_key
+        data_tests:
+          - not_null
+          - unique
+
+  - name: dim_company
+    description: "One row per active company; first/last_seen + posting counts."
+    columns:
+      - name: company_key
+        data_tests:
+          - not_null
+          - unique
+      - name: company
+        data_tests:
+          - not_null
+          - unique
+
+  - name: dim_skill
+    description: "One row per skill with its dictionary category and seen window."
+    columns:
+      - name: skill_key
+        data_tests:
+          - not_null
+          - unique
+      - name: skill
+        data_tests:
+          - not_null
+          - unique
+      - name: category
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                ["Architecture", "Backend", "Cloud", "Data", "Database",
+                 "DevOps", "Frontend", "Language", "ML/AI", "Mobile",
+                 "Practice", "Security", "Testing"]
+
+  - name: dim_role
+    description: "Target role families (the leaderboard dimension)."
+    columns:
+      - name: role_key
+        data_tests:
+          - not_null
+          - unique
+      - name: role
+        data_tests:
+          - not_null
+          - unique
+          - accepted_values:
+              values:
+                ["Backend Engineer", "Frontend Engineer", "Full Stack Engineer",
+                 "Data Engineer", "Data Scientist", "Machine Learning Engineer",
+                 "DevOps Engineer", "Mobile Engineer"]
+
+  - name: fact_job_posting
+    description: "One row per active, hash-deduped posting. Star-schema central fact."
+    columns:
+      - name: job_id
+        description: "Grain / primary key."
+        data_tests:
+          - not_null
+          - unique
+      - name: dedup_hash
+        data_tests:
+          - not_null
+          - unique   # one representative row per content hash
+      - name: company_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_company')
+              field: company_key
+      - name: first_seen_date_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+      - name: posted_date_key
+        data_tests:
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+
+  - name: fact_job_skill
+    description: "Bridge fact: one row per (deduped posting, skill)."
+    columns:
+      - name: job_skill_key
+        data_tests:
+          - not_null
+          - unique
+      - name: job_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('fact_job_posting')
+              field: job_id
+      - name: skill_key
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_skill')
+              field: skill_key
+      - name: category
+        data_tests:
+          - not_null

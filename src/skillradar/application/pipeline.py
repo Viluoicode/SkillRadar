@@ -37,7 +37,7 @@ def _status(outcome: FetchOutcome) -> str:
     return "completed_with_errors" if outcome.succeeded_boards else "failed"
 
 
-def run_pipeline(deps: PipelineDeps, trigger: str = "manual") -> RunResult:
+def run_pipeline(deps: PipelineDeps, trigger: str = "manual", build_gold: bool = True) -> RunResult:
     started_at = datetime.now(UTC)
     run_id = uuid4().hex[:12]
     logger.info("Pipeline run %s starting (trigger=%s)", run_id, trigger)
@@ -54,9 +54,18 @@ def run_pipeline(deps: PipelineDeps, trigger: str = "manual") -> RunResult:
         deps.jobs, outcome.fetched, outcome.succeeded_boards, started_at
     )
 
-    # ---- Gold: extract skills + aggregate demand ----
+    # ---- Gold: extract skills, then aggregate demand ----
+    # Skill extraction always runs in Python — it writes ``job_skills``, the input the dbt staging
+    # models read. The demand aggregation is built either here (the Python fallback) or by dbt
+    # after the pipeline's write connection closes (``build_gold=False``; see interface/cli.py and
+    # infrastructure/dbt/runner.py). Either way the output is identical — guaranteed by
+    # tests/test_dbt_parity.py.
     skills_service.extract_job_skills(deps.jobs, deps.links, upserted, skill_defs)
-    demand_rows = gold.aggregate_skill_demand(deps.jobs, deps.links, deps.demand, started_at)
+    demand_rows = (
+        gold.aggregate_skill_demand(deps.jobs, deps.links, deps.demand, started_at)
+        if build_gold
+        else 0
+    )
 
     status = _status(outcome)
     finished_at = datetime.now(UTC)
@@ -78,6 +87,7 @@ def run_pipeline(deps: PipelineDeps, trigger: str = "manual") -> RunResult:
 
     result = RunResult(
         run_id=run_id,
+        started_at=started_at,
         status=status,
         boards_attempted=len(boards),
         boards_succeeded=len(outcome.succeeded_boards),

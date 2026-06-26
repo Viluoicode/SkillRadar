@@ -18,6 +18,9 @@ dependencies = [
 [project.optional-dependencies]
 orchestration = ["prefect>=2.16"]
 ai = ["anthropic>=0.40"]  # optional LLM learning-roadmap enrichment
+# Analytics-engineering layer: dbt owns the Silver→Gold transform (the star schema + marts).
+# Invoked as a subprocess, so it may live in its own env — dbt-core has no Python 3.14 wheels yet.
+dbt = ["dbt-duckdb>=1.9"]
 dev = ["pytest>=8", "ruff>=0.4"]
 
 [project.scripts]
@@ -42,3 +45,6 @@ select = ["E", "F", "I", "UP", "B"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "dbt: end-to-end test that shells out to dbt (skipped when dbt is not on PATH)",
+]

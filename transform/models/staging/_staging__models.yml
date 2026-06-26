@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: stg_jobs
+    description: "Typed/renamed postings from Silver (no description); adds title_lower."
+    columns:
+      - name: job_id
+        description: "Stable posting id."
+        data_tests:
+          - not_null
+          - unique
+      - name: source
+        description: "ATS / aggregator the posting came from."
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ["greenhouse", "lever", "ashby", "arbeitnow"]
+      - name: dedup_hash
+        description: "Cross-source content hash — identical postings share it."
+        data_tests:
+          - not_null
+      - name: is_active
+        data_tests:
+          - not_null
+
+  - name: stg_job_skills
+    description: "Distinct (job_id, skill) links with a deterministic category."
+    columns:
+      - name: job_id
+        data_tests:
+          - not_null
+      - name: skill
+        data_tests:
+          - not_null
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: ["job_id", "skill"]

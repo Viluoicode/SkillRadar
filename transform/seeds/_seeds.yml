@@ -1,0 +1,18 @@
+version: 2
+
+seeds:
+  - name: seed_roles
+    description: >
+      Target role families and the lower-cased title substrings that classify a posting into each
+      (a posting matches a role when its lower-cased title CONTAINS the pattern). Mirrors the
+      Python `domain/roles.py` DEFAULT_ROLES so the dbt Gold and the Python fallback agree.
+    columns:
+      - name: role
+        description: "Role family name (the Gold leaderboard dimension)."
+        data_tests:
+          - not_null
+      - name: pattern
+        description: "Lower-cased title substring that maps a posting to the role."
+        data_tests:
+          - not_null
+          - unique

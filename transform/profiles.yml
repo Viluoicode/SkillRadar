@@ -1,0 +1,19 @@
+# Committed, self-contained profile (no ~/.dbt needed). The warehouse target mirrors the app's
+# `config.data_target`: a local DuckDB file in dev, MotherDuck (md:) in prod when MOTHERDUCK_TOKEN
+# is set. The runner / CI selects the target via DBT_TARGET; paths come from the same env vars the
+# Python pipeline uses, so dbt and the app always point at the same database.
+skillradar:
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"
+  outputs:
+    dev:
+      type: duckdb
+      # Default path is relative to this project dir (transform/); the runner passes an abs path.
+      path: "{{ env_var('SKILLRADAR_DUCKDB', '../data/skillradar.duckdb') }}"
+      schema: main
+      threads: 1
+    prod:
+      type: duckdb
+      # MotherDuck cloud DuckDB; MOTHERDUCK_TOKEN is read by the duckdb motherduck extension.
+      path: "md:{{ env_var('SKILLRADAR_MOTHERDUCK_DB', 'skillradar') }}"
+      schema: main
+      threads: 4

@@ -9,8 +9,11 @@ its original source. The curated `data/sources.json` ships 35 ATS company boards
 aggregator (~6.7k live postings, 130+ companies).
 
 This is the **active product**. The original ASP.NET Core implementation (the Python parity tests
-were ported from it) is preserved at the git tag **`dotnet-archive`** — see
-[`reference/README.md`](reference/README.md) to recover it; it is not part of this repo or CI.
+were ported from it) was **removed from `main`** and preserved at the git tag **`dotnet-archive`**
+— see [`reference/README.md`](reference/README.md) to recover it. It is not built or tested in CI.
+
+The **Silver → Gold** transform is built with **dbt** (a conformed star schema + the Gold marts);
+see [Analytics engineering](#analytics-engineering-dbt) below and [`transform/`](transform/).
 
 ## Stack
 
@@ -18,7 +21,8 @@ were ported from it) is preserved at the git tag **`dotnet-archive`** — see
 | --- | --- |
 | Ingestion / resilience | `httpx` + `tenacity` (retry/backoff, per-board isolation) |
 | Validation | `pydantic` v2 |
-| Transform + storage | `pandas` + **DuckDB** + Parquet (Medallion on local files) |
+| Load + storage | `pandas` + **DuckDB** / **MotherDuck** + Parquet (Bronze on local files) |
+| Analytics engineering | **dbt** (`dbt-duckdb`) — Silver→Gold star schema, marts, tests, docs |
 | Skill extraction | rule-based regex matcher + ambiguous-term guards (ported from .NET) |
 | Orchestration | plain Python (`interface/cli.py`) → **Prefect** (`interface/prefect_flow.py`) |
 | Schedule / CI | GitHub Actions (cron + lint/test) |
@@ -37,10 +41,10 @@ BRONZE   data/bronze/run_*.parquet        raw payloads, exactly as fetched (repl
         │  pydantic + normalize + dedup + lifecycle
         ▼
 SILVER   DuckDB: jobs, job_skills         typed, deduped (cross-source hash), first/last_seen + is_active
-        │  regex skill matcher + guards, role aggregation
+        │  regex skill matcher (Python)  →  dbt builds Silver → Gold
         ▼
-GOLD     DuckDB: skill_demand,            in-demand skills per role per snapshot; accumulated trends
-         skill_trends
+GOLD     dbt star schema + marts          dims: company / skill / role / date · facts: job_posting, job_skill
+         (skill_demand, skill_trends)     marts: demand leaderboard per role + accumulated trends
         ▼
 SERVING  Streamlit dashboard (reads Gold through a read-model repository)
 ```
@@ -56,18 +60,57 @@ src/skillradar/
 ├── application/     use-cases + ports — repository/connector Protocols (ports.py), DTOs,
 │                    errors, the silver/skills/gold services, and the pipeline orchestrator.
 │                    Depends only on domain.
-├── infrastructure/  the only layer that touches I/O — DuckDb* repositories (all SQL lives
-│                    here), warehouse schema, http client, Parquet bronze store, ATS
-│                    connectors + board fetcher, JSON catalogs, config, logging.
+├── infrastructure/  the only layer that touches I/O — DuckDb* repositories (all *serving* SQL
+│                    lives here), warehouse schema, http client, Parquet bronze store, ATS
+│                    connectors + board fetcher, the dbt runner, JSON catalogs, config, logging.
 └── interface/       composition roots — CLI (cli.py) and Prefect flow wire concrete
                      adapters into the pipeline. The Streamlit dashboard (dashboard/app.py)
                      renders through a read-model repository.
 ```
 
+The offline **Silver→Gold transform lives in [`transform/`](transform/)** (dbt), outside the
+Python layers — the pipeline shells out to it via the dbt runner
+([`infrastructure/dbt/runner.py`](src/skillradar/infrastructure/dbt/runner.py)).
+
 Why it matters: business rules never depend on DuckDB, so the whole Silver→Gold flow runs
 against in-memory fakes in tests (`tests/test_services_with_fakes.py`), and the storage or
 HTTP stack can change without touching `domain`/`application`. The dependency rule is
 enforced by `tests/test_architecture.py`.
+
+## Analytics engineering (dbt)
+
+The warehouse **Silver → Gold** transform is a **dbt** project in [`transform/`](transform/). The
+split is the modern data stack's: **Python does EL** (Bronze → Silver: fetch, validate, dedup,
+lifecycle, regex skill extraction → writes `jobs` / `job_skills`), and **dbt does T** — a conformed
+**star schema** and the Gold marts, with declarative tests and lineage docs.
+
+```
+staging            marts/core  (STAR SCHEMA)                  marts/analytics (Gold)
+stg_jobs ───────┬─ dim_company  dim_skill  dim_role  dim_date   skill_demand   (leaderboard)
+stg_job_skills ─┤  fact_job_posting ─► fact_job_skill           skill_trends
+seed_roles ─────┴────────────── int_posting_roles ────────────► (serve the dashboard directly)
+```
+
+- **`fact_job_posting`** — one active, hash-deduped posting; FKs to `dim_company` / `dim_date`.
+- **`fact_job_skill`** — bridge (posting × skill); FKs to `dim_skill` / `fact_job_posting`.
+- **`skill_demand` / `skill_trends`** — Gold marts, aliased to the table names the dashboard
+  already reads (the serving layer is unchanged). They reproduce the Python aggregation **exactly**
+  — guaranteed by `tests/test_dbt_parity.py` (a real `dbt build` compared row-for-row).
+- **Data quality** — `dbt build` runs `not_null` / `unique` on dim keys, `relationships` fact→dim,
+  and `accepted_values` on `source` / `role` / skill `category`; `jobs` has source **freshness**.
+
+```bash
+pip install "dbt-duckdb>=1.9"                                   # dbt lives in its own env (3.12)
+dbt build --project-dir transform --profiles-dir transform     # build + test the warehouse
+dbt docs generate --project-dir transform --profiles-dir transform   # then `dbt docs serve` → DAG
+```
+
+In normal use the pipeline drives dbt for you: `skillradar --gold dbt` runs Bronze→Silver in
+Python, then `dbt build` for Gold (falling back to the Python aggregation where dbt isn't
+installed). Details: [`.claude/docs/dbt_transform.md`](.claude/docs/dbt_transform.md) ·
+[`transform/README.md`](transform/README.md).
+
+> 📸 *Run `dbt docs serve` and drop the lineage-graph screenshot here.*
 
 ## Setup
 
@@ -76,7 +119,8 @@ enforced by `tests/test_architecture.py`.
 uv venv && uv pip install -e ".[dev]"     # or: pip install -e ".[dev]"
 ```
 
-Python **3.12+** required.
+Python **3.12+** required. For the dbt layer, also `pip install -e ".[dbt]"` (or keep it in a
+separate env — dbt-core has no Python 3.14 wheels yet).
 
 ## Run
 
@@ -99,6 +143,7 @@ python m0_spike.py
 
 # Full pipeline (Bronze → Silver → Gold) → writes data/skillradar.duckdb
 python -m skillradar.interface.cli            # or just: skillradar
+#   Gold engine: --gold auto (default; dbt when installed, else Python) | --gold dbt | --gold python
 
 # Inspect the result
 duckdb data/skillradar.duckdb \
@@ -153,8 +198,9 @@ The production data layer is **MotherDuck** (DuckDB-in-the-cloud) — the same S
 and **no data is committed to git**. The pipeline writes to MotherDuck; the dashboard reads from
 it. Locally (no token) everything falls back to a DuckDB file, so dev is unchanged.
 
-- **Data**: GitHub Actions (`.github/workflows/pipeline.yml`) runs the pipeline daily and writes
-  straight to MotherDuck (`MOTHERDUCK_TOKEN` secret). On failure it pings an optional alert webhook.
+- **Data**: GitHub Actions (`.github/workflows/pipeline.yml`) runs the pipeline daily (Silver in
+  Python, **Gold via `dbt build` + dbt tests**) and writes straight to MotherDuck
+  (`MOTHERDUCK_TOKEN` secret). On failure it pings an optional alert webhook.
 - **App**: Streamlit Community Cloud hosts `dashboard/app.py`, reading the same MotherDuck database.
 - **Switch**: `data_target()` ([config.py](src/skillradar/infrastructure/config.py)) returns
   `md:<db>` when `MOTHERDUCK_TOKEN` is set, else the local file path. One choke point, no SQL
@@ -185,8 +231,9 @@ Clean-Architecture restructure, the Definition-of-Done source coverage (35 ATS b
 Arbeitnow aggregator), **M7** (demand-trend chart over daily `skill_trends` snapshots),
 **M8** (skill-gap input + optional AI learning roadmap), **M9** (the *Ask the market* chat —
 grounded Q&A via structured tool-use over the corpus), the **Streamlit Community Cloud deployment**
-(bring-your-own-key AI), and the **production data layer on MotherDuck** (no data in git) with
-pipeline failure alerting.
+(bring-your-own-key AI), the **production data layer on MotherDuck** (no data in git) with
+pipeline failure alerting, and an **analytics-engineering layer in dbt** — the Silver→Gold star
+schema + Gold marts, declarative data-quality tests, and lineage docs.
 Next: error tracking (Sentry) + an in-app pipeline-health panel; parallel/incremental ingestion
 and more sources; semantic résumé→jobs matching; a weekly AI market brief.
 

@@ -1,0 +1,48 @@
+version: 2
+
+models:
+  - name: skill_demand
+    description: >
+      Gold leaderboard — distinct postings per role requiring each skill, per daily snapshot.
+      Serves the dashboard directly (the serving read model queries this table by name).
+    columns:
+      - name: role
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_role')
+              field: role
+      - name: skill
+        data_tests:
+          - not_null
+      - name: category
+        data_tests:
+          - not_null
+      - name: job_count
+        data_tests:
+          - not_null
+      - name: snapshot_date
+        data_tests:
+          - not_null
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: ["role", "skill", "category", "snapshot_date"]
+
+  - name: skill_trends
+    description: "Gold trend history — skill_demand projected to (role, skill, snapshot_date, count)."
+    columns:
+      - name: role
+        data_tests:
+          - not_null
+      - name: skill
+        data_tests:
+          - not_null
+      - name: job_count
+        data_tests:
+          - not_null
+      - name: snapshot_date
+        data_tests:
+          - not_null
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: ["role", "skill", "snapshot_date"]

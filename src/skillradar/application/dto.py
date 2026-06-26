@@ -49,6 +49,7 @@ class RunResult:
     """The summary returned to the caller (CLI / flow) after a run."""
 
     run_id: str
+    started_at: datetime  # run timestamp; the CLI stamps the dbt Gold snapshot with its date
     status: str
     boards_attempted: int
     boards_succeeded: int

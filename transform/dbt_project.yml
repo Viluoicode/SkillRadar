@@ -1,0 +1,28 @@
+name: skillradar
+version: "1.0.0"
+config-version: 2
+
+# Self-contained: profiles.yml lives in this dir (pass --profiles-dir transform). The Python
+# pipeline (Bronze->Silver) writes the `jobs`/`job_skills` Silver tables; this dbt project owns
+# the Silver->Gold transform: staging -> dimensions -> facts -> marts.
+profile: skillradar
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  skillradar:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: ephemeral
+    marts:
+      core:
+        +materialized: table
+      analytics:
+        +materialized: table
